@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
-import { Student, Route, BusState, Notification } from '@/types/student';
+import { Student, Route, BusState, AppNotification, StopStatus } from '@/types/student';
 import { Student as FirestoreStudent, Route as FirestoreRoute, LiveBus } from '@/types/firestore';
-import type { RealtimeBusLocation, RealtimeCurrentStop } from '@/types/realtime';
+import type { RealtimeBusLocation, RealtimeCurrentStop, RealtimeStopEntry } from '@/types/realtime';
 import {
   getRoutes,
   subscribeToRoutes,
@@ -13,10 +13,22 @@ import {
 } from '@/services/firestore';
 import { subscribeToRealtimeBusByRouteId } from '@/services/realtimeDb';
 import {
+  initFCMForStudent,
+  refreshAndSaveFCMToken,
+  registerServiceWorker,
+  requestNotificationPermission,
+  setupForegroundMessageHandler,
+  showSystemNotification,
+  updateStudentRouteStopInRTDB,
+} from '@/services/fcm';
+import {
   convertFirestoreRouteToAppRoute,
   convertLiveBusToBusState,
   getStopStatusByIndex,
 } from '@/utils/firestoreConverters';
+import { toast } from 'sonner';
+
+const SESSION_STORAGE_KEY = 'bus_tracker_student_session';
 
 interface StudentContextType {
   student: Student | null;
@@ -27,8 +39,10 @@ interface StudentContextType {
   realtimeLocation: RealtimeBusLocation | null;
   realtimeRouteState: string | null;
   realtimeCurrentStop: RealtimeCurrentStop | null;
+  /** RTDB stops keyed by stop id e.g. "1-1", "1-2" */
+  realtimeStops: Record<string, RealtimeStopEntry> | null;
   busState: BusState;
-  notifications: Notification[];
+  notifications: AppNotification[];
   unreadCount: number;
   login: (email: string, password: string) => Promise<boolean>;
   refreshTracking: () => void;
@@ -59,17 +73,216 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [realtimeLocation, setRealtimeLocation] = useState<RealtimeBusLocation | null>(null);
   const [realtimeRouteState, setRealtimeRouteState] = useState<string | null>(null);
   const [realtimeCurrentStop, setRealtimeCurrentStop] = useState<RealtimeCurrentStop | null>(null);
+  const [realtimeStops, setRealtimeStops] = useState<Record<string, RealtimeStopEntry> | null>(null);
   const [trackingRefreshNonce, setTrackingRefreshNonce] = useState(0);
   const [busState, setBusState] = useState<BusState>({
     status: 'not-started',
     currentStopIndex: -1,
     lastUpdated: new Date(),
   });
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [previousStopIndex, setPreviousStopIndex] = useState<number>(-1);
+  const [sessionRestored, setSessionRestored] = useState(false);
 
-  const addNotification = useCallback((type: Notification['type'], message: string) => {
-    const notification: Notification = {
+  // *** EARLY SERVICE WORKER REGISTRATION AND NOTIFICATION PERMISSION REQUEST ***
+  // This ensures the SW is registered and notifications are prompted immediately when app loads
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('Notification' in window) || !('serviceWorker' in navigator)) {
+      console.warn('[App] Notifications or Service Workers not supported');
+      return;
+    }
+
+    // Log current state for debugging
+    console.log('[App] === FCM Setup Check ===');
+    console.log('[App] Notification permission:', Notification.permission);
+    console.log('[App] Service Worker support:', 'serviceWorker' in navigator);
+
+    // Register service worker early (required for FCM)
+    registerServiceWorker().then((registration) => {
+      if (registration) {
+        console.log('[App] ✅ Service Worker registered successfully');
+      } else {
+        console.error('[App] ❌ Service Worker registration failed');
+      }
+    });
+
+    // Only prompt if permission hasn't been decided yet
+    if (Notification.permission === 'default') {
+      // Show a toast guiding the user
+      const timer = setTimeout(() => {
+        toast.info('🔔 Enable Notifications', {
+          description: 'Get real-time bus alerts and never miss your stop!',
+          duration: 15000,
+          action: {
+            label: 'Enable Now',
+            onClick: () => {
+              console.log('[App] User clicked Enable Now button');
+              requestNotificationPermission().then((permission) => {
+                console.log('[App] Permission result:', permission);
+                if (permission === 'granted') {
+                  toast.success('Notifications enabled!', {
+                    description: 'You will now receive bus alerts.',
+                  });
+                } else if (permission === 'denied') {
+                  toast.error('Notifications blocked', {
+                    description: 'Please enable notifications in your browser settings to get bus alerts.',
+                  });
+                }
+              });
+            },
+          },
+        });
+
+        // Also trigger the native browser permission prompt after a short delay
+        setTimeout(() => {
+          if (Notification.permission === 'default') {
+            console.log('[App] Auto-triggering notification permission prompt...');
+            requestNotificationPermission().then((permission) => {
+              console.log('[App] Auto-prompt permission result:', permission);
+              if (permission === 'granted') {
+                toast.success('Notifications enabled!', {
+                  description: 'You will now receive bus updates.',
+                });
+              }
+            });
+          }
+        }, 2000);
+      }, 1000);
+
+      return () => clearTimeout(timer);
+    } else {
+      console.log('[App] Notification permission already decided:', Notification.permission);
+    }
+  }, []);
+
+  // Restore session from localStorage on mount (so refresh doesn't logout)
+  useEffect(() => {
+    if (sessionRestored || isLoggedIn) return;
+    try {
+      const raw = localStorage.getItem(SESSION_STORAGE_KEY);
+      if (!raw) {
+        setSessionRestored(true);
+        return;
+      }
+      const { email } = JSON.parse(raw) as { email: string };
+      if (!email) {
+        setSessionRestored(true);
+        return;
+      }
+      getStudentByEmail(email).then((firestoreStudent) => {
+        if (!firestoreStudent) {
+          localStorage.removeItem(SESSION_STORAGE_KEY);
+          setSessionRestored(true);
+          return;
+        }
+        getRoutes().then((firestoreRoutes) => {
+          const appRoutes = firestoreRoutes.map(convertFirestoreRouteToAppRoute);
+          setRoutes(appRoutes);
+          const appStudent: Student = {
+            id: firestoreStudent.id,
+            studentId: firestoreStudent.studentId,
+            name: firestoreStudent.name,
+            email: firestoreStudent.email,
+            selectedRouteId: firestoreStudent.selectedRouteId ?? firestoreStudent.routeId,
+            selectedStopId: firestoreStudent.selectedStopId ?? firestoreStudent.stopId,
+            routeName: firestoreStudent.routeName,
+            hasCompletedSetup:
+              firestoreStudent.hasCompletedSetup || !!firestoreStudent.selectedRouteId || !!firestoreStudent.routeId,
+          };
+          setStudent(appStudent);
+          setIsLoggedIn(true);
+          if (appStudent.selectedRouteId) {
+            const route = appRoutes.find((r) => r.id === appStudent.selectedRouteId);
+            if (route) setSelectedRoute(route);
+            else if (firestoreStudent.routeName) {
+              const byName = appRoutes.find((r) => r.name === firestoreStudent.routeName);
+              if (byName) setSelectedRoute(byName);
+            }
+          }
+          setSessionRestored(true);
+        });
+      });
+    } catch {
+      localStorage.removeItem(SESSION_STORAGE_KEY);
+      setSessionRestored(true);
+    }
+  }, [sessionRestored, isLoggedIn]);
+
+  // FCM: request permission, get token, save to students/{studentId}/fcmToken (+ routeId, stopId); handle foreground
+  useEffect(() => {
+    if (!student) return;
+    // Use same key as RTDB: students/1 → student.id (Firestore doc id) so Cloud Function finds fcmToken
+    const studentId = student.id;
+    if (!studentId) return;
+
+    const opts = { routeId: student.selectedRouteId, stopId: student.selectedStopId };
+
+    const runFCM = () => {
+      initFCMForStudent(studentId, opts).then((ok) => {
+        if (ok) {
+          console.info('[FCM] Token saved to RTDB students/' + studentId);
+        } else {
+          toast.error('Notifications not enabled', {
+            description: 'Allow notifications in browser settings to get bus alerts.',
+          });
+        }
+      }).catch((err) => {
+        console.warn('FCM init failed:', err);
+        toast.error('Could not enable notifications', { description: String(err?.message || err) });
+      });
+    };
+
+    // Keep RTDB students/{studentId} in sync so Cloud Functions can find students to notify
+    updateStudentRouteStopInRTDB(studentId, student.selectedRouteId, student.selectedStopId).catch(() => { });
+
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+      toast('Get bus updates', {
+        description: 'Allow notifications to know when your bus is near.',
+        action: {
+          label: 'Allow',
+          onClick: () => {
+            requestNotificationPermission().then((permission) => {
+              if (permission === 'granted') runFCM();
+            });
+          },
+        },
+        duration: 12000,
+      });
+      // Proactively show browser permission prompt after a short delay so user can allow
+      const t = setTimeout(() => {
+        requestNotificationPermission().then((permission) => {
+          if (permission === 'granted') runFCM();
+        });
+      }, 1500);
+      return () => clearTimeout(t);
+    }
+
+    runFCM();
+
+    // When tab becomes visible, refresh token and save (in case token rotated)
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible' && Notification.permission === 'granted') {
+        refreshAndSaveFCMToken(studentId, opts).catch(() => { });
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
+    const unsubscribe = setupForegroundMessageHandler((payload) => {
+      const title = payload.notification?.title ?? (payload.data as Record<string, string> | undefined)?.title ?? 'Bus Tracker';
+      const body = payload.notification?.body ?? (payload.data as Record<string, string> | undefined)?.body ?? '';
+      // Show system notification (OS tray) like on phone/laptop
+      showSystemNotification(title, { body, tag: 'bus-tracker-fcm' });
+      // Also show in-app toast when app is focused
+      toast(title, { description: body || undefined });
+    });
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      if (typeof unsubscribe === 'function') unsubscribe();
+    };
+  }, [student]);
+
+  const addNotification = useCallback((type: AppNotification['type'], message: string) => {
+    const notification: AppNotification = {
       id: `notif-${Date.now()}`,
       type,
       message,
@@ -90,7 +303,7 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const firestoreRoutes = await getRoutes();
         const appRoutes = firestoreRoutes.map(convertFirestoreRouteToAppRoute);
         setRoutes(appRoutes);
-        
+
         // If student is logged in but route not set, try to set it now
         if (student?.selectedRouteId && !selectedRoute) {
           const route = appRoutes.find((r) => r.id === student.selectedRouteId);
@@ -109,7 +322,7 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const unsubscribe = subscribeToRoutes((firestoreRoutes) => {
       const appRoutes = firestoreRoutes.map(convertFirestoreRouteToAppRoute);
       setRoutes(appRoutes);
-      
+
       // Update selected route if it exists
       if (selectedRoute) {
         const updatedRoute = appRoutes.find((r) => r.id === selectedRoute.id);
@@ -145,12 +358,14 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
           setRealtimeLocation(null);
           setRealtimeRouteState(null);
           setRealtimeCurrentStop(null);
+          setRealtimeStops(null);
           return;
         }
 
         setRealtimeLocation(data.location);
         setRealtimeRouteState(data.routeState ?? null);
         setRealtimeCurrentStop(data.currentStop ?? null);
+        setRealtimeStops(data.stops ?? null);
 
         // Use RTDB as source-of-truth for status + current stop index (matches driver app)
         const rs = (data.routeState ?? data.location.routeState ?? '').toString();
@@ -164,12 +379,22 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const ts =
           data.currentStop?.updatedAt ?? data.location.updatedAt ?? data.location.timestamp ?? Date.now();
 
-        // Compute currentStopIndex from RTDB currentStop (prefer stopId match, then order)
+        // Compute currentStopIndex from RTDB: prefer stops[id].status === 'current', else currentStop
         let currentStopIndex = -1;
         if (selectedRoute) {
-          const stopId = data.currentStop?.stopId;
-          if (stopId) {
-            currentStopIndex = selectedRoute.stops.findIndex((s) => s.id === stopId);
+          if (data.stops && typeof data.stops === 'object') {
+            const entries = Object.entries(data.stops);
+            const current = entries.find(([, s]) => s?.status === 'current');
+            if (current) {
+              const [stopId] = current;
+              currentStopIndex = selectedRoute.stops.findIndex((s) => s.id === stopId);
+              if (currentStopIndex < 0 && typeof current[1].order === 'number') {
+                currentStopIndex = Math.max(0, current[1].order - 1);
+              }
+            }
+          }
+          if (currentStopIndex < 0 && data.currentStop?.stopId) {
+            currentStopIndex = selectedRoute.stops.findIndex((s) => s.id === data.currentStop!.stopId);
           }
           if (currentStopIndex < 0 && typeof data.currentStop?.order === 'number') {
             currentStopIndex = Math.max(0, data.currentStop.order - 1);
@@ -191,6 +416,7 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setRealtimeLocation(null);
         setRealtimeRouteState(null);
         setRealtimeCurrentStop(null);
+        setRealtimeStops(null);
       }
     );
 
@@ -201,7 +427,7 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
   useEffect(() => {
     // Determine route name to subscribe to
     let routeNameToSubscribe: string | null = null;
-    
+
     if (realtimeLocation?.routeName) {
       // Prefer RTDB routeName (comes directly from driver app)
       routeNameToSubscribe = realtimeLocation.routeName;
@@ -236,20 +462,46 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
         // Check for notifications
         if (bus && student?.selectedStopId && selectedRoute) {
           const currentStopIndex = bus.stops.findIndex((s) => s.status === 'current');
-          
+          const studentStopIndex = selectedRoute.stops.findIndex((s) => s.id === student.selectedStopId);
+          const studentStopName = studentStopIndex >= 0 ? selectedRoute.stops[studentStopIndex].name : 'your stop';
+
           // Notify when bus starts
           if (newBusState.status === 'running' && previousStopIndex === -1 && currentStopIndex >= 0) {
-            addNotification('bus-started', 'Your bus has started! Track its progress in real-time.');
+            const title = '🚌 Bus Started!';
+            const body = 'Your bus has started! Track its progress in real-time.';
+            addNotification('bus-started', body);
+            showSystemNotification(title, { body, tag: 'bus-started' });
+            console.log('[Notification] Bus started notification sent');
           }
 
-          // Notify when approaching student's stop
-          if (currentStopIndex >= 0 && currentStopIndex !== previousStopIndex) {
-            const currentStop = bus.stops[currentStopIndex];
-            const studentStopIndex = selectedRoute.stops.findIndex((s) => s.id === student.selectedStopId);
-            
-            if (studentStopIndex >= 0 && currentStopIndex === studentStopIndex - 1) {
-              const nextStop = selectedRoute.stops[studentStopIndex];
-              addNotification('stop-reached', `Your stop "${nextStop.name}" is coming up next!`);
+          // Only check stop-based notifications if stop index changed
+          if (currentStopIndex >= 0 && currentStopIndex !== previousStopIndex && studentStopIndex >= 0) {
+
+            // Notify when bus is ONE stop away from student's stop
+            if (currentStopIndex === studentStopIndex - 1) {
+              const title = '📍 Bus Approaching!';
+              const body = `Your stop "${studentStopName}" is coming up next! Get ready.`;
+              addNotification('stop-approaching', body);
+              showSystemNotification(title, { body, tag: 'bus-approaching' });
+              console.log('[Notification] Bus approaching notification sent - 1 stop away');
+            }
+
+            // Notify when bus arrives AT student's stop
+            if (currentStopIndex === studentStopIndex) {
+              const title = '🎯 Bus Arrived!';
+              const body = `Bus has arrived at "${studentStopName}"! Time to board.`;
+              addNotification('stop-reached', body);
+              showSystemNotification(title, { body, tag: 'bus-arrived' });
+              console.log('[Notification] Bus arrived at student stop notification sent');
+            }
+
+            // Notify if bus has PASSED student's stop (missed it)
+            if (currentStopIndex === studentStopIndex + 1 && previousStopIndex === studentStopIndex) {
+              const title = '⚠️ Bus Passed Your Stop';
+              const body = `The bus has passed "${studentStopName}". Please contact the driver if needed.`;
+              addNotification('alert', body);
+              showSystemNotification(title, { body, tag: 'bus-passed' });
+              console.log('[Notification] Bus passed student stop notification sent');
             }
           }
 
@@ -271,7 +523,7 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       // Get student from Firestore
       const firestoreStudent = await getStudentByEmail(email);
-      
+
       if (!firestoreStudent) {
         return false;
       }
@@ -312,6 +564,11 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       setStudent(appStudent);
       setIsLoggedIn(true);
+      try {
+        localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({ email: appStudent.email }));
+      } catch {
+        // ignore
+      }
 
       // Set selected route if student has one
       if (appStudent.selectedRouteId) {
@@ -365,6 +622,11 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [routes]);
 
   const logout = useCallback(() => {
+    try {
+      localStorage.removeItem(SESSION_STORAGE_KEY);
+    } catch {
+      // ignore
+    }
     setStudent(null);
     setIsLoggedIn(false);
     setSelectedRoute(null);
@@ -372,6 +634,7 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setRealtimeLocation(null);
     setRealtimeRouteState(null);
     setRealtimeCurrentStop(null);
+    setRealtimeStops(null);
     setBusState({
       status: 'not-started',
       currentStopIndex: -1,
@@ -412,6 +675,8 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
           stopId: student.selectedStopId,
           stopName: selectedRoute?.stops.find((s) => s.id === student.selectedStopId)?.name,
         });
+        // So Cloud Functions can find which students to notify (use Firestore doc id = RTDB students/{id})
+        updateStudentRouteStopInRTDB(firestoreStudent.id, student.selectedRouteId, student.selectedStopId).catch(() => { });
         // Update will be handled by the subscription
       }
     } catch (error) {
@@ -448,6 +713,7 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
         realtimeLocation,
         realtimeRouteState,
         realtimeCurrentStop,
+        realtimeStops,
         busState,
         notifications,
         unreadCount,

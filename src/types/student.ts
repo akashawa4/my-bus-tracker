@@ -33,9 +33,10 @@ export interface BusState {
   lastUpdated: Date;
 }
 
-export interface Notification {
+/** In-app notification (renamed to avoid conflict with browser global Notification). */
+export interface AppNotification {
   id: string;
-  type: 'bus-started' | 'stop-reached' | 'info';
+  type: 'bus-started' | 'stop-approaching' | 'stop-reached' | 'alert' | 'info';
   message: string;
   timestamp: Date;
   read: boolean;

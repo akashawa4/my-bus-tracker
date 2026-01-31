@@ -55,6 +55,16 @@ This project is built with:
 - Tailwind CSS
 - Firebase
 
+## How do I test FCM (push notifications)?
+
+1. Run the app and log in as a student. When the browser asks, **allow** notifications.
+2. In [Firebase Console](https://console.firebase.google.com/) → **Realtime Database**, confirm the token is saved at `students/{studentId}/fcmToken`.
+3. **Firebase Console** → **Messaging** → **New campaign** → **Send test message** and paste that FCM token.
+4. **Foreground:** keep the app tab focused → you should see an in-app toast.
+5. **Background:** switch to another tab and send again → you should see a system notification.
+
+For full steps and a Node script to send from the command line, see **[docs/TESTING_FCM.md](docs/TESTING_FCM.md)**.
+
 ## How can I deploy this project?
 
 Build the project using:

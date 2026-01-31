@@ -1,19 +1,23 @@
 import { useState } from 'react';
-import { Bell, X, Bus, MapPin, Info } from 'lucide-react';
+import { Bell, X, Bus, MapPin, Info, AlertTriangle, Navigation } from 'lucide-react';
 import { useStudent } from '@/context/StudentContext';
 import { cn } from '@/lib/utils';
-import { Notification } from '@/types/student';
+import { AppNotification } from '@/types/student';
 
 export const NotificationBell: React.FC = () => {
   const { notifications, unreadCount, markNotificationRead, clearNotifications } = useStudent();
   const [isOpen, setIsOpen] = useState(false);
 
-  const getNotificationIcon = (type: Notification['type']) => {
+  const getNotificationIcon = (type: AppNotification['type']) => {
     switch (type) {
       case 'bus-started':
         return <Bus className="w-4 h-4 text-accent" />;
+      case 'stop-approaching':
+        return <Navigation className="w-4 h-4 text-warning" />;
       case 'stop-reached':
         return <MapPin className="w-4 h-4 text-success" />;
+      case 'alert':
+        return <AlertTriangle className="w-4 h-4 text-destructive" />;
       default:
         return <Info className="w-4 h-4 text-muted-foreground" />;
     }

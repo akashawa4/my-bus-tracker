@@ -14,6 +14,7 @@ export const TrackingScreen: React.FC = () => {
     realtimeLocation,
     realtimeRouteState,
     realtimeCurrentStop,
+    realtimeStops,
     busState,
     refreshTracking,
     logout,
@@ -22,9 +23,15 @@ export const TrackingScreen: React.FC = () => {
   if (!selectedRoute || !student) return null;
 
   const getStopStatus = (index: number): StopStatus => {
+    const stop = selectedRoute.stops[index];
+    if (!stop) return 'pending';
+    // Prefer RTDB stops (keys "1-1", "1-2", ...) for per-stop status
+    if (realtimeStops && typeof realtimeStops[stop.id]?.status === 'string') {
+      const s = realtimeStops[stop.id].status as string;
+      if (s === 'reached' || s === 'current' || s === 'pending') return s as StopStatus;
+    }
     if (busState.status === 'not-started') return 'pending';
     if (busState.status === 'completed') return 'reached';
-    
     if (index < busState.currentStopIndex) return 'reached';
     if (index === busState.currentStopIndex) return 'current';
     return 'pending';

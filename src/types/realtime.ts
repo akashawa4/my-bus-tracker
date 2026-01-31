@@ -22,13 +22,28 @@ export interface RealtimeCurrentStop {
   updatedAt?: number;
 }
 
+/** One stop entry in buses/BUS-XXX/stops (array or map) */
+export interface RealtimeStopEntry {
+  id?: string;
+  name?: string;
+  order?: number;
+  status?: string;
+  stopId?: string;
+  updatedAt?: number;
+}
+
+/** buses/BUS-XXX/routeState can be string or { state, updatedAt } */
+export type RealtimeRouteStateNode =
+  | string
+  | { state?: RealtimeRouteState; updatedAt?: number };
+
 export interface RealtimeBusNode {
   currentStop?: RealtimeCurrentStop;
   location?: RealtimeBusLocation;
-  routeState?: {
-    state?: RealtimeRouteState;
-    updatedAt?: number;
-  };
+  /** "in_progress" | "completed" | { state, updatedAt } */
+  routeState?: RealtimeRouteStateNode;
+  stops?: RealtimeStopEntry[] | Record<string, RealtimeStopEntry>;
+  stopsByName?: Record<string, RealtimeStopEntry>;
 }
 
 export type RealtimeBusesRoot = Record<string, RealtimeBusNode>;
