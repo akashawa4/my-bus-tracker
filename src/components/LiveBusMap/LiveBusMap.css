@@ -1,0 +1,350 @@
+/* ============================================
+   Live Bus Map Styles
+   OpenStreetMap + Leaflet styling for bus tracking
+   ============================================ */
+
+/* Map container */
+.live-bus-map-container {
+    position: relative;
+    width: 100%;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+.live-bus-map {
+    width: 100%;
+    height: 100%;
+    z-index: 0;
+}
+
+/* ============================================
+   Bus Marker Styles
+   ============================================ */
+.bus-marker {
+    background: transparent !important;
+    border: none !important;
+}
+
+.bus-marker-container {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.bus-marker-dot {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    transition: transform 0.2s ease;
+}
+
+.bus-marker-dot:hover {
+    transform: scale(1.1);
+}
+
+.bus-marker-ring {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 60px;
+    height: 60px;
+    border: 3px solid #22c55e;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    animation: bus-pulse 2s ease-out infinite;
+    opacity: 0.6;
+}
+
+@keyframes bus-pulse {
+    0% {
+        width: 44px;
+        height: 44px;
+        opacity: 0.8;
+    }
+
+    100% {
+        width: 80px;
+        height: 80px;
+        opacity: 0;
+    }
+}
+
+.bus-marker-pulse .bus-marker-dot {
+    animation: bus-bounce 1s ease-in-out infinite;
+}
+
+@keyframes bus-bounce {
+
+    0%,
+    100% {
+        transform: translateY(0);
+    }
+
+    50% {
+        transform: translateY(-4px);
+    }
+}
+
+/* ============================================
+   Stop Marker Styles
+   ============================================ */
+.stop-marker {
+    background: transparent !important;
+    border: none !important;
+}
+
+.stop-marker-container {
+    transition: transform 0.2s ease;
+}
+
+.stop-marker-container:hover {
+    transform: scale(1.15);
+}
+
+/* ============================================
+   Popup Styles
+   ============================================ */
+.leaflet-popup-content-wrapper {
+    border-radius: 12px;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+}
+
+.leaflet-popup-content {
+    margin: 12px 16px;
+    font-family: inherit;
+}
+
+.leaflet-popup-tip {
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.1);
+}
+
+.bus-popup,
+.stop-popup {
+    min-width: 160px;
+}
+
+.bus-popup-header,
+.stop-popup-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.bus-popup-icon {
+    font-size: 20px;
+}
+
+.bus-popup-row,
+.stop-popup-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 0;
+    font-size: 13px;
+}
+
+.bus-popup-label,
+.stop-popup-label {
+    color: #6b7280;
+    font-weight: 500;
+}
+
+.bus-popup-status,
+.stop-popup-status {
+    padding: 2px 8px;
+    border-radius: 9999px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.bus-popup-status.in_progress,
+.stop-popup-status.current {
+    background-color: #dbeafe;
+    color: #1d4ed8;
+}
+
+.bus-popup-status.completed,
+.stop-popup-status.reached {
+    background-color: #dcfce7;
+    color: #16a34a;
+}
+
+.bus-popup-status.not_started,
+.stop-popup-status.pending {
+    background-color: #f3f4f6;
+    color: #6b7280;
+}
+
+.stop-popup-badge {
+    font-size: 11px;
+    background: linear-gradient(135deg, #fbbf24, #f59e0b);
+    color: white;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    font-weight: 600;
+}
+
+/* ============================================
+   Map Controls
+   ============================================ */
+.map-controls {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    z-index: 1000;
+}
+
+.map-control-btn {
+    width: 40px;
+    height: 40px;
+    background: white;
+    border: none;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    transition: all 0.2s ease;
+    color: #374151;
+}
+
+.map-control-btn:hover:not(:disabled) {
+    background: #f3f4f6;
+    transform: scale(1.05);
+}
+
+.map-control-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.map-control-btn.active {
+    background: #3b82f6;
+    color: white;
+}
+
+/* ============================================
+   Map Overlays
+   ============================================ */
+.map-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    pointer-events: none;
+}
+
+.map-overlay-loading {
+    background: rgba(255, 255, 255, 0.9);
+}
+
+.map-overlay-not-started {
+    background: rgba(255, 255, 255, 0.7);
+}
+
+.map-overlay-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+}
+
+/* ============================================
+   Status Indicator
+   ============================================ */
+.map-status-indicator {
+    position: absolute;
+    bottom: 12px;
+    left: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: white;
+    padding: 8px 14px;
+    border-radius: 9999px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    z-index: 1000;
+}
+
+.map-status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #9ca3af;
+}
+
+.map-status-dot.tracking {
+    background: #22c55e;
+    animation: status-pulse 1.5s ease-in-out infinite;
+}
+
+.map-status-dot.completed {
+    background: #3b82f6;
+}
+
+@keyframes status-pulse {
+
+    0%,
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+
+    50% {
+        opacity: 0.5;
+        transform: scale(1.2);
+    }
+}
+
+.map-status-text {
+    font-size: 12px;
+    font-weight: 600;
+    color: #374151;
+}
+
+/* ============================================
+   Responsive adjustments
+   ============================================ */
+@media (max-width: 640px) {
+    .map-controls {
+        top: 8px;
+        right: 8px;
+    }
+
+    .map-control-btn {
+        width: 36px;
+        height: 36px;
+    }
+
+    .map-status-indicator {
+        bottom: 8px;
+        left: 8px;
+        padding: 6px 12px;
+    }
+
+    .map-status-text {
+        font-size: 11px;
+    }
+}

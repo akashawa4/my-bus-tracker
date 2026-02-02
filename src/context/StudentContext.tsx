@@ -459,14 +459,28 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const newBusState = convertLiveBusToBusState(bus);
         setBusState(newBusState);
 
-        // Check for notifications
+        // Check for notifications - ONLY if bus is actually in_progress
+        // This prevents false notifications from old/stale RTDB data
         if (bus && student?.selectedStopId && selectedRoute) {
           const currentStopIndex = bus.stops.findIndex((s) => s.status === 'current');
           const studentStopIndex = selectedRoute.stops.findIndex((s) => s.id === student.selectedStopId);
           const studentStopName = studentStopIndex >= 0 ? selectedRoute.stops[studentStopIndex].name : 'your stop';
 
-          // Notify when bus starts
-          if (newBusState.status === 'running' && previousStopIndex === -1 && currentStopIndex >= 0) {
+          // Check if data is fresh (within last 5 minutes)
+          const busTimestamp = bus.updatedAt?.toDate?.() ?? (bus.updatedAt instanceof Date ? bus.updatedAt : new Date());
+          const now = new Date();
+          const dataAgeMs = now.getTime() - busTimestamp.getTime();
+          const fiveMinutesMs = 5 * 60 * 1000;
+          const isDataFresh = dataAgeMs < fiveMinutesMs;
+
+          // Only send notifications if:
+          // 1. Bus is actually running (not just old data)
+          // 2. Data is fresh (not stale)
+          // 3. realtimeRouteState confirms bus is in_progress
+          const isActuallyRunning = newBusState.status === 'running' && isDataFresh;
+
+          // Notify when bus starts - only if it's actually starting now (not resuming from old data)
+          if (isActuallyRunning && previousStopIndex === -1 && currentStopIndex >= 0 && isDataFresh) {
             const title = '🚌 Bus Started!';
             const body = 'Your bus has started! Track its progress in real-time.';
             addNotification('bus-started', body);
@@ -474,8 +488,8 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
             console.log('[Notification] Bus started notification sent');
           }
 
-          // Only check stop-based notifications if stop index changed
-          if (currentStopIndex >= 0 && currentStopIndex !== previousStopIndex && studentStopIndex >= 0) {
+          // Only check stop-based notifications if bus is actually running and data is fresh
+          if (isActuallyRunning && currentStopIndex >= 0 && currentStopIndex !== previousStopIndex && studentStopIndex >= 0) {
 
             // Notify when bus is ONE stop away from student's stop
             if (currentStopIndex === studentStopIndex - 1) {
@@ -505,7 +519,10 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
             }
           }
 
-          setPreviousStopIndex(currentStopIndex);
+          // Only update previousStopIndex if data is fresh
+          if (isDataFresh) {
+            setPreviousStopIndex(currentStopIndex);
+          }
         }
       },
       (error) => {

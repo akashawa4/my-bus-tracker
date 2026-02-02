@@ -1,7 +1,9 @@
+import { useMemo } from 'react';
 import { useStudent } from '@/context/StudentContext';
 import { NotificationBell } from '@/components/NotificationBell';
 import { BusStatusCard } from '@/components/BusStatusCard';
 import { StopCard } from '@/components/StopCard';
+import { LiveBusMap, BusPosition, StopMarker } from '@/components/LiveBusMap';
 import { Button } from '@/components/ui/button';
 import { StopStatus } from '@/types/student';
 import { LogOut, MapPin, Bus, User, BadgeCheck } from 'lucide-react';
@@ -22,9 +24,25 @@ export const TrackingScreen: React.FC = () => {
 
   if (!selectedRoute || !student) return null;
 
+  // Check if route completion was more than 30 minutes ago - if so, reset to pending
+  const isCompletedButExpired = (): boolean => {
+    if (busState.status !== 'completed') return false;
+    const now = new Date();
+    const lastUpdated = busState.lastUpdated;
+    const timeDiffMs = now.getTime() - lastUpdated.getTime();
+    const thirtyMinutesMs = 30 * 60 * 1000; // 30 minutes in milliseconds
+    return timeDiffMs > thirtyMinutesMs;
+  };
+
   const getStopStatus = (index: number): StopStatus => {
     const stop = selectedRoute.stops[index];
     if (!stop) return 'pending';
+
+    // If route was completed more than 30 minutes ago, reset all stops to pending
+    if (isCompletedButExpired()) {
+      return 'pending';
+    }
+
     // Prefer RTDB stops (keys "1-1", "1-2", ...) for per-stop status
     if (realtimeStops && typeof realtimeStops[stop.id]?.status === 'string') {
       const s = realtimeStops[stop.id].status as string;
@@ -37,6 +55,9 @@ export const TrackingScreen: React.FC = () => {
     return 'pending';
   };
 
+  // Get effective bus status - reset to not-started if completion expired
+  const effectiveStatus = isCompletedButExpired() ? 'not-started' : busState.status;
+
   const studentStop = selectedRoute.stops.find(s => s.id === student.selectedStopId);
   const busNumber = realtimeLocation?.busNumber ?? liveBus?.busNumber;
   const driverName = realtimeLocation?.driverName ?? liveBus?.driverName;
@@ -45,6 +66,45 @@ export const TrackingScreen: React.FC = () => {
       ? `${realtimeLocation.latitude.toFixed(6)}, ${realtimeLocation.longitude.toFixed(6)}`
       : null;
   const currentStopText = realtimeCurrentStop?.name ?? null;
+
+  // Transform realtime location to BusPosition for map
+  const busPosition: BusPosition | null = useMemo(() => {
+    if (!realtimeLocation?.latitude || !realtimeLocation?.longitude) return null;
+
+    // Don't show on map if completed and expired
+    if (isCompletedButExpired()) return null;
+
+    // Don't show bus position if bus hasn't started yet (prevents showing old RTDB data)
+    const currentRouteState = realtimeRouteState ?? realtimeLocation.routeState;
+    if (currentRouteState === 'not_started' || currentRouteState === undefined) {
+      return null;
+    }
+
+    return {
+      latitude: realtimeLocation.latitude,
+      longitude: realtimeLocation.longitude,
+      accuracy: realtimeLocation.accuracy,
+      timestamp: realtimeLocation.updatedAt ?? realtimeLocation.timestamp ?? Date.now(),
+    };
+  }, [realtimeLocation, realtimeRouteState, busState.status, busState.lastUpdated]);
+
+  // Transform route stops to map markers (with static coordinates for demo)
+  // In production, these would come from Firestore route data with actual coordinates
+  const stopMarkers: StopMarker[] = useMemo(() => {
+    // For now, return empty array - stops need latitude/longitude in route data
+    // This can be populated when route data includes stop coordinates
+    return [];
+  }, [selectedRoute.stops, realtimeStops, student.selectedStopId]);
+
+  // Get route state for map
+  const routeStateForMap = useMemo(() => {
+    if (isCompletedButExpired()) return 'not_started';
+    if (realtimeRouteState === 'in_progress') return 'in_progress';
+    if (realtimeRouteState === 'completed') return 'completed';
+    if (effectiveStatus === 'running') return 'in_progress';
+    if (effectiveStatus === 'completed') return 'completed';
+    return 'not_started';
+  }, [realtimeRouteState, effectiveStatus, busState.status, busState.lastUpdated]);
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -60,7 +120,7 @@ export const TrackingScreen: React.FC = () => {
               <p className="text-xs text-muted-foreground">Student</p>
             </div>
           </div>
-          
+
           <div className="flex items-center gap-2">
             <NotificationBell />
             <button
@@ -128,14 +188,33 @@ export const TrackingScreen: React.FC = () => {
       {/* Content */}
       <main className="flex-1 px-4 py-6 overflow-y-auto">
         {/* Bus Status */}
-        <BusStatusCard status={busState.status} lastUpdated={busState.lastUpdated} />
+        <BusStatusCard status={effectiveStatus} lastUpdated={busState.lastUpdated} />
+
+        {/* Live Bus Map */}
+        <div className="mt-6">
+          <h2 className="text-sm font-semibold text-foreground uppercase tracking-wide mb-4">
+            Live Bus Location
+          </h2>
+          <LiveBusMap
+            busPosition={busPosition}
+            busNumber={busNumber}
+            driverName={driverName}
+            routeState={routeStateForMap}
+            stops={stopMarkers}
+            studentStopId={student.selectedStopId}
+            height={280}
+            autoCenter={false}
+            showPath={true}
+            maxPathPoints={100}
+          />
+        </div>
 
         {/* Route Progress */}
         <div className="mt-6">
           <h2 className="text-sm font-semibold text-foreground uppercase tracking-wide mb-4">
             Route Progress
           </h2>
-          
+
           <div className="space-y-0">
             {selectedRoute.stops.map((stop, index) => (
               <StopCard
@@ -164,9 +243,9 @@ export const TrackingScreen: React.FC = () => {
       {/* Info Footer */}
       <footer className="bg-card border-t border-border p-4 text-center">
         <p className="text-xs text-muted-foreground">
-          {busState.status === 'not-started' && 'Waiting for bus to start...'}
-          {busState.status === 'running' && 'Bus is on the way to your stop'}
-          {busState.status === 'completed' && 'Route completed for today'}
+          {effectiveStatus === 'not-started' && 'Waiting for bus to start...'}
+          {effectiveStatus === 'running' && 'Bus is on the way to your stop'}
+          {effectiveStatus === 'completed' && 'Route completed for today'}
         </p>
       </footer>
     </div>

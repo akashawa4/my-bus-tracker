@@ -15,7 +15,7 @@ const statusConfig = {
   current: {
     bg: 'bg-accent',
     text: 'text-accent-foreground',
-    label: 'Current',
+    label: 'On the Way',
   },
   pending: {
     bg: 'bg-pending',
