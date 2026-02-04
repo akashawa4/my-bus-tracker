@@ -4,6 +4,8 @@ import { StopStatus, BusStatus } from '@/types/student';
 interface StatusBadgeProps {
   status: StopStatus | BusStatus;
   className?: string;
+  /** Override the default label (e.g. "Bus Not Started" for stops when bus not started) */
+  label?: string;
 }
 
 const statusConfig = {
@@ -39,8 +41,9 @@ const statusConfig = {
   },
 };
 
-export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, className }) => {
+export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, className, label: labelOverride }) => {
   const config = statusConfig[status];
+  const label = labelOverride ?? config.label;
 
   return (
     <span
@@ -51,7 +54,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, className }) =
         className
       )}
     >
-      {config.label}
+      {label}
     </span>
   );
 };

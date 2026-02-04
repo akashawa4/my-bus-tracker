@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useEffect } from 'react';
 import { useStudent } from '@/context/StudentContext';
 import { NotificationBell } from '@/components/NotificationBell';
 import { BusStatusCard } from '@/components/BusStatusCard';
@@ -106,6 +106,12 @@ export const TrackingScreen: React.FC = () => {
     return 'not_started';
   }, [realtimeRouteState, effectiveStatus, busState.status, busState.lastUpdated]);
 
+  // Refresh bus location every 2 seconds so the map marker updates
+  useEffect(() => {
+    const interval = setInterval(refreshTracking, 2000);
+    return () => clearInterval(interval);
+  }, [refreshTracking]);
+
   return (
     <div className="min-h-screen bg-background flex flex-col">
       {/* Header */}
@@ -190,7 +196,38 @@ export const TrackingScreen: React.FC = () => {
         {/* Bus Status */}
         <BusStatusCard status={effectiveStatus} lastUpdated={busState.lastUpdated} />
 
-        {/* Live Bus Map */}
+        {/* Route Progress (stops name) */}
+        <div className="mt-6">
+          <h2 className="text-sm font-semibold text-foreground uppercase tracking-wide mb-4">
+            Route Progress
+          </h2>
+
+          <div className="space-y-0">
+            {selectedRoute.stops.map((stop, index) => (
+              <StopCard
+                key={stop.id}
+                stop={stop}
+                status={getStopStatus(index)}
+                isStudentStop={stop.id === student.selectedStopId}
+                isLast={index === selectedRoute.stops.length - 1}
+                busStatus={effectiveStatus}
+              />
+            ))}
+          </div>
+
+          <div className="mt-4">
+            <Button
+              type="button"
+              variant="secondary"
+              className="w-full h-11 rounded-xl"
+              onClick={refreshTracking}
+            >
+              Refresh
+            </Button>
+          </div>
+        </div>
+
+        {/* Live Bus Map - below stops */}
         <div className="mt-6">
           <h2 className="text-sm font-semibold text-foreground uppercase tracking-wide mb-4">
             Live Bus Location
@@ -207,36 +244,6 @@ export const TrackingScreen: React.FC = () => {
             showPath={true}
             maxPathPoints={100}
           />
-        </div>
-
-        {/* Route Progress */}
-        <div className="mt-6">
-          <h2 className="text-sm font-semibold text-foreground uppercase tracking-wide mb-4">
-            Route Progress
-          </h2>
-
-          <div className="space-y-0">
-            {selectedRoute.stops.map((stop, index) => (
-              <StopCard
-                key={stop.id}
-                stop={stop}
-                status={getStopStatus(index)}
-                isStudentStop={stop.id === student.selectedStopId}
-                isLast={index === selectedRoute.stops.length - 1}
-              />
-            ))}
-          </div>
-
-          <div className="mt-4">
-            <Button
-              type="button"
-              variant="secondary"
-              className="w-full h-11 rounded-xl"
-              onClick={refreshTracking}
-            >
-              Refresh
-            </Button>
-          </div>
         </div>
       </main>
 

@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils';
-import { Stop, StopStatus } from '@/types/student';
+import { Stop, StopStatus, BusStatus } from '@/types/student';
 import { StopIndicator } from './StopIndicator';
 import { StatusBadge } from './ui/StatusBadge';
 import { Star, Clock } from 'lucide-react';
@@ -9,6 +9,8 @@ interface StopCardProps {
   status: StopStatus;
   isStudentStop: boolean;
   isLast: boolean;
+  /** When bus is not started, show "Bus Not Started" instead of "Pending" for pending stops */
+  busStatus?: BusStatus;
 }
 
 export const StopCard: React.FC<StopCardProps> = ({
@@ -16,7 +18,11 @@ export const StopCard: React.FC<StopCardProps> = ({
   status,
   isStudentStop,
   isLast,
+  busStatus,
 }) => {
+  const badgeLabel =
+    status === 'pending' && busStatus === 'not-started' ? 'Bus Not Started' : undefined;
+
   return (
     <div
       className={cn(
@@ -70,7 +76,7 @@ export const StopCard: React.FC<StopCardProps> = ({
               )}
             </div>
             
-            <StatusBadge status={status} />
+            <StatusBadge status={status} label={badgeLabel} />
           </div>
           
           {isStudentStop && (

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { Student, Route, BusState, AppNotification, StopStatus } from '@/types/student';
 import { Student as FirestoreStudent, Route as FirestoreRoute, LiveBus } from '@/types/firestore';
 import type { RealtimeBusLocation, RealtimeCurrentStop, RealtimeStopEntry } from '@/types/realtime';
@@ -82,7 +82,13 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
   });
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [previousStopIndex, setPreviousStopIndex] = useState<number>(-1);
+  const previousStopIndexRef = useRef<number>(-1);
+  const selectedRouteRef = useRef<Route | null>(null);
+  const studentRef = useRef<Student | null>(null);
   const [sessionRestored, setSessionRestored] = useState(false);
+
+  selectedRouteRef.current = selectedRoute;
+  studentRef.current = student;
 
   // *** EARLY SERVICE WORKER REGISTRATION AND NOTIFICATION PERMISSION REQUEST ***
   // This ensures the SW is registered and notifications are prompted immediately when app loads
@@ -449,6 +455,7 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return;
     }
 
+    previousStopIndexRef.current = previousStopIndex;
     console.log('Subscribing to live bus for route:', routeNameToSubscribe);
 
     const unsubscribe = subscribeToLiveBus(
@@ -461,10 +468,13 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
         // Check for notifications - ONLY if bus is actually in_progress
         // This prevents false notifications from old/stale RTDB data
-        if (bus && student?.selectedStopId && selectedRoute) {
+        const currentStudent = studentRef.current;
+        const currentRoute = selectedRouteRef.current;
+        if (bus && currentStudent?.selectedStopId && currentRoute) {
           const currentStopIndex = bus.stops.findIndex((s) => s.status === 'current');
-          const studentStopIndex = selectedRoute.stops.findIndex((s) => s.id === student.selectedStopId);
-          const studentStopName = studentStopIndex >= 0 ? selectedRoute.stops[studentStopIndex].name : 'your stop';
+          const studentStopIndex = currentRoute.stops.findIndex((s) => s.id === currentStudent.selectedStopId);
+          const studentStopName = studentStopIndex >= 0 ? currentRoute.stops[studentStopIndex].name : 'your stop';
+          const prevStop = previousStopIndexRef.current;
 
           // Check if data is fresh (within last 5 minutes)
           const busTimestamp = bus.updatedAt?.toDate?.() ?? (bus.updatedAt instanceof Date ? bus.updatedAt : new Date());
@@ -480,7 +490,7 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
           const isActuallyRunning = newBusState.status === 'running' && isDataFresh;
 
           // Notify when bus starts - only if it's actually starting now (not resuming from old data)
-          if (isActuallyRunning && previousStopIndex === -1 && currentStopIndex >= 0 && isDataFresh) {
+          if (isActuallyRunning && prevStop === -1 && currentStopIndex >= 0 && isDataFresh) {
             const title = '🚌 Bus Started!';
             const body = 'Your bus has started! Track its progress in real-time.';
             addNotification('bus-started', body);
@@ -489,7 +499,7 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
           }
 
           // Only check stop-based notifications if bus is actually running and data is fresh
-          if (isActuallyRunning && currentStopIndex >= 0 && currentStopIndex !== previousStopIndex && studentStopIndex >= 0) {
+          if (isActuallyRunning && currentStopIndex >= 0 && currentStopIndex !== prevStop && studentStopIndex >= 0) {
 
             // Notify when bus is ONE stop away from student's stop
             if (currentStopIndex === studentStopIndex - 1) {
@@ -510,7 +520,7 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
             }
 
             // Notify if bus has PASSED student's stop (missed it)
-            if (currentStopIndex === studentStopIndex + 1 && previousStopIndex === studentStopIndex) {
+            if (currentStopIndex === studentStopIndex + 1 && prevStop === studentStopIndex) {
               const title = '⚠️ Bus Passed Your Stop';
               const body = `The bus has passed "${studentStopName}". Please contact the driver if needed.`;
               addNotification('alert', body);
@@ -519,8 +529,9 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
             }
           }
 
-          // Only update previousStopIndex if data is fresh
+          // Only update previousStopIndex if data is fresh (use ref to avoid effect re-run loop)
           if (isDataFresh) {
+            previousStopIndexRef.current = currentStopIndex;
             setPreviousStopIndex(currentStopIndex);
           }
         }
@@ -534,7 +545,7 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
       console.log('Unsubscribing from live bus');
       unsubscribe();
     };
-  }, [selectedRoute, student, realtimeLocation?.routeName, previousStopIndex, addNotification, trackingRefreshNonce]);
+  }, [realtimeLocation?.routeName, selectedRoute?.name, student?.routeName, addNotification]);
 
   const login = useCallback(async (email: string, password: string): Promise<boolean> => {
     try {
