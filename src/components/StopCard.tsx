@@ -4,6 +4,15 @@ import { StopIndicator } from './StopIndicator';
 import { StatusBadge } from './ui/StatusBadge';
 import { Star, Clock } from 'lucide-react';
 
+/** Format timestamp (ms) to locale time string e.g. "9:44 AM" */
+function formatReachedTime(ms: number): string {
+  return new Date(ms).toLocaleTimeString(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
+}
+
 interface StopCardProps {
   stop: Stop;
   status: StopStatus;
@@ -11,6 +20,10 @@ interface StopCardProps {
   isLast: boolean;
   /** When bus is not started, show "Bus Not Started" instead of "Pending" for pending stops */
   busStatus?: BusStatus;
+  /** When status is reached, show "Reached at HH:MM" (persists until next trip) */
+  reachedAt?: number;
+  /** When status is current, show "Reach by {estimatedTime}" */
+  showReachBy?: boolean;
 }
 
 export const StopCard: React.FC<StopCardProps> = ({
@@ -19,9 +32,19 @@ export const StopCard: React.FC<StopCardProps> = ({
   isStudentStop,
   isLast,
   busStatus,
+  reachedAt,
+  showReachBy,
 }) => {
   const badgeLabel =
     status === 'pending' && busStatus === 'not-started' ? 'Bus Not Started' : undefined;
+  const timeLabel =
+    status === 'reached' && reachedAt != null
+      ? `Reached at ${formatReachedTime(reachedAt)}`
+      : showReachBy && stop.estimatedTime
+        ? `Reach by ${stop.estimatedTime}`
+        : stop.estimatedTime
+          ? `Est. ${stop.estimatedTime}`
+          : null;
 
   return (
     <div
@@ -67,11 +90,17 @@ export const StopCard: React.FC<StopCardProps> = ({
                   <Star className="w-4 h-4 text-primary fill-primary flex-shrink-0" />
                 )}
               </div>
-              {stop.estimatedTime && (
-                <div className="flex items-center gap-1.5 mt-1">
-                  <Clock className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-                  <span className="text-sm text-muted-foreground">
-                    {stop.estimatedTime}
+              {/* Reached time / reach-by time always below stop name on its own line */}
+              {timeLabel && (
+                <div className="flex items-center gap-1.5 mt-1.5 w-full">
+                  <Clock className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0 mt-0.5" />
+                  <span
+                    className={cn(
+                      'text-sm',
+                      status === 'reached' ? 'text-success font-medium' : 'text-muted-foreground'
+                    )}
+                  >
+                    {timeLabel}
                   </span>
                 </div>
               )}

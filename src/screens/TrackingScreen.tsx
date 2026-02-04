@@ -106,6 +106,30 @@ export const TrackingScreen: React.FC = () => {
     return 'not_started';
   }, [realtimeRouteState, effectiveStatus, busState.status, busState.lastUpdated]);
 
+  // Reached time (ms) for a stop when status is 'reached' – from RTDB, shown until next trip
+  const getReachedAt = (stopId: string, order: number): number | undefined => {
+    if (isCompletedButExpired()) return undefined;
+    if (!realtimeStops) return undefined;
+    // Try direct key, then key without "stop-" prefix, then find by stopId/order
+    let entry = realtimeStops[stopId];
+    if (!entry && stopId.startsWith('stop-')) {
+      entry = realtimeStops[stopId.replace(/^stop-/, '')];
+    }
+    if (!entry) {
+      const byStopId = Object.entries(realtimeStops).find(
+        ([_, e]) => e?.stopId === stopId || e?.order === order
+      );
+      entry = byStopId?.[1];
+    }
+    if (!entry || entry.status !== 'reached') return undefined;
+    const t = entry.updatedAt;
+    if (t == null) return undefined;
+    return t > 1e12 ? t : t * 1000; // treat as seconds if small
+  };
+
+  // Fallback reached time when RTDB has no updatedAt (use last bus state update so something shows)
+  const fallbackReachedAt = busState.lastUpdated.getTime();
+
   // Refresh bus location every 2 seconds so the map marker updates
   useEffect(() => {
     const interval = setInterval(refreshTracking, 2000);
@@ -203,16 +227,25 @@ export const TrackingScreen: React.FC = () => {
           </h2>
 
           <div className="space-y-2">
-            {selectedRoute.stops.map((stop, index) => (
-              <StopCard
-                key={stop.id}
-                stop={stop}
-                status={getStopStatus(index)}
-                isStudentStop={stop.id === student.selectedStopId}
-                isLast={index === selectedRoute.stops.length - 1}
-                busStatus={effectiveStatus}
-              />
-            ))}
+            {selectedRoute.stops.map((stop, index) => {
+              const status = getStopStatus(index);
+              return (
+                <StopCard
+                  key={stop.id}
+                  stop={stop}
+                  status={status}
+                  isStudentStop={stop.id === student.selectedStopId}
+                  isLast={index === selectedRoute.stops.length - 1}
+                  busStatus={effectiveStatus}
+                  reachedAt={
+                    status === 'reached'
+                      ? getReachedAt(stop.id, stop.order) ?? fallbackReachedAt
+                      : undefined
+                  }
+                  showReachBy={status === 'current'}
+                />
+              );
+            })}
           </div>
 
           <div className="mt-4">
