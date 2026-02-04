@@ -113,9 +113,9 @@ export const TrackingScreen: React.FC = () => {
   }, [refreshTracking]);
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      {/* Header */}
-      <header className="bg-card border-b border-border px-4 py-4 sticky top-0 z-10">
+    <div className="min-h-screen bg-background flex flex-col overflow-hidden">
+      {/* Header - do not shrink */}
+      <header className="flex-shrink-0 bg-card border-b border-border px-4 py-4 sticky top-0 z-10 overflow-hidden">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
@@ -140,9 +140,9 @@ export const TrackingScreen: React.FC = () => {
         </div>
 
         {/* Route, Stop & Bus info */}
-        <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div className="flex items-center gap-2 px-3 py-2 bg-secondary rounded-lg">
-            <Bus className="w-4 h-4 text-primary" />
+        <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3 [contain:layout]">
+          <div className="flex items-center gap-2 px-3 py-2 bg-secondary rounded-lg min-w-0">
+            <Bus className="w-4 h-4 text-primary flex-shrink-0" />
             <div className="min-w-0">
               <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Route</p>
               <p className="text-sm font-medium text-foreground truncate">
@@ -151,8 +151,8 @@ export const TrackingScreen: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 px-3 py-2 bg-primary/10 rounded-lg border border-primary/20">
-            <MapPin className="w-4 h-4 text-primary" />
+          <div className="flex items-center gap-2 px-3 py-2 bg-primary/10 rounded-lg border border-primary/20 min-w-0">
+            <MapPin className="w-4 h-4 text-primary flex-shrink-0" />
             <div className="min-w-0">
               <p className="text-[11px] uppercase tracking-wide text-primary/80">Your stop</p>
               <p className="text-sm font-medium text-primary truncate">
@@ -161,8 +161,8 @@ export const TrackingScreen: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 px-3 py-2 bg-secondary rounded-lg">
-            <BadgeCheck className="w-4 h-4 text-primary" />
+          <div className="flex items-center gap-2 px-3 py-2 bg-secondary rounded-lg min-w-0">
+            <BadgeCheck className="w-4 h-4 text-primary flex-shrink-0" />
             <div className="min-w-0">
               <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Bus & Driver</p>
               <p className="text-xs font-medium text-foreground truncate">
@@ -191,18 +191,18 @@ export const TrackingScreen: React.FC = () => {
         </div>
       </header>
 
-      {/* Content */}
-      <main className="flex-1 px-4 py-6 overflow-y-auto">
+      {/* Content - min-h-0 needed for flex + overflow scroll */}
+      <main className="flex-1 min-h-0 px-4 py-6 overflow-y-auto overflow-x-hidden">
         {/* Bus Status */}
         <BusStatusCard status={effectiveStatus} lastUpdated={busState.lastUpdated} />
 
         {/* Route Progress (stops name) */}
-        <div className="mt-6">
+        <div className="mt-6 [contain:layout]">
           <h2 className="text-sm font-semibold text-foreground uppercase tracking-wide mb-4">
             Route Progress
           </h2>
 
-          <div className="space-y-0">
+          <div className="space-y-2">
             {selectedRoute.stops.map((stop, index) => (
               <StopCard
                 key={stop.id}
@@ -248,7 +248,7 @@ export const TrackingScreen: React.FC = () => {
       </main>
 
       {/* Info Footer */}
-      <footer className="bg-card border-t border-border p-4 text-center">
+      <footer className="flex-shrink-0 bg-card border-t border-border p-4 text-center">
         <p className="text-xs text-muted-foreground">
           {effectiveStatus === 'not-started' && 'Waiting for bus to start...'}
           {effectiveStatus === 'running' && 'Bus is on the way to your stop'}

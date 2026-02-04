@@ -26,21 +26,22 @@ export const StopCard: React.FC<StopCardProps> = ({
   return (
     <div
       className={cn(
-        'flex items-start gap-4 animate-fade-in',
+        'flex items-start gap-3 sm:gap-4 animate-fade-in min-w-0',
         isStudentStop && 'relative'
       )}
     >
-      <StopIndicator status={status} isStudentStop={isStudentStop} isLast={isLast} />
-      
+      <div className="flex-shrink-0">
+        <StopIndicator status={status} isStudentStop={isStudentStop} isLast={isLast} />
+      </div>
       <div
         className={cn(
-          'flex-1 pb-6',
+          'flex-1 min-w-0 pb-6 overflow-hidden',
           isLast && 'pb-0'
         )}
       >
         <div
           className={cn(
-            'rounded-lg p-4 transition-all duration-300',
+            'rounded-lg p-4 transition-all duration-300 overflow-hidden',
             isStudentStop
               ? 'bg-primary/10 border-2 border-primary shadow-card'
               : status === 'current'
@@ -50,35 +51,33 @@ export const StopCard: React.FC<StopCardProps> = ({
               : 'bg-card border border-border'
           )}
         >
-          <div className="flex items-start justify-between gap-2">
-            <div className="flex-1">
-              <div className="flex items-center gap-2">
+          <div className="flex items-start justify-between gap-2 min-w-0">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 min-w-0">
                 <h3
                   className={cn(
-                    'font-semibold text-base',
+                    'font-semibold text-base truncate',
                     status === 'pending' ? 'text-muted-foreground' : 'text-foreground'
                   )}
+                  title={stop.name}
                 >
                   {stop.name}
                 </h3>
                 {isStudentStop && (
-                  <Star className="w-4 h-4 text-primary fill-primary" />
+                  <Star className="w-4 h-4 text-primary fill-primary flex-shrink-0" />
                 )}
               </div>
-              
               {stop.estimatedTime && (
                 <div className="flex items-center gap-1.5 mt-1">
-                  <Clock className="w-3.5 h-3.5 text-muted-foreground" />
+                  <Clock className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
                   <span className="text-sm text-muted-foreground">
                     {stop.estimatedTime}
                   </span>
                 </div>
               )}
             </div>
-            
-            <StatusBadge status={status} label={badgeLabel} />
+            <StatusBadge status={status} label={badgeLabel} className="flex-shrink-0 whitespace-nowrap" />
           </div>
-          
           {isStudentStop && (
             <p className="text-xs text-primary font-medium mt-2">
               Your stop

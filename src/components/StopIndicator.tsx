@@ -47,7 +47,7 @@ export const StopIndicator: React.FC<StopIndicatorProps> = ({
   };
 
   return (
-    <div className="relative flex flex-col items-center">
+    <div className="relative flex flex-col items-center flex-shrink-0 w-8">
       <div
         className={cn(
           getIndicatorStyles(),
