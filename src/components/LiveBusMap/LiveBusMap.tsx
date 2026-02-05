@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap, useMapEvent } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { LiveBusMapProps, BusPosition, StopMarker } from './types';
@@ -78,26 +78,86 @@ const createStopIcon = (status: StopMarker['status'], isStudentStop: boolean) =>
 function MapViewController({
     busPosition,
     autoCenter,
-    centerTrigger
+    centerTrigger,
+    hasUserInteracted,
 }: {
     busPosition: BusPosition | null;
     autoCenter: boolean;
     centerTrigger: number;
+    hasUserInteracted: boolean;
 }) {
     const map = useMap();
     const initialCenteredRef = useRef(false);
+    const lastCenterTriggerRef = useRef(0);
 
     useEffect(() => {
         if (!busPosition) return;
 
-        if (!initialCenteredRef.current || centerTrigger > 0) {
+        const centerMap = () => {
             map.setView([busPosition.latitude, busPosition.longitude], DEFAULT_ZOOM, {
                 animate: true,
                 duration: 0.5,
             });
+        };
+
+        // First time we get a position, always center
+        if (!initialCenteredRef.current) {
+            centerMap();
             initialCenteredRef.current = true;
+            return;
         }
-    }, [busPosition, map, centerTrigger, autoCenter]);
+
+        // Explicit center button presses (centerTrigger change)
+        if (centerTrigger !== lastCenterTriggerRef.current) {
+            lastCenterTriggerRef.current = centerTrigger;
+            centerMap();
+            return;
+        }
+
+        // Auto-center only when enabled and user has NOT interacted
+        if (autoCenter && !hasUserInteracted) {
+            centerMap();
+        }
+    }, [busPosition, map, centerTrigger, autoCenter, hasUserInteracted]);
+
+    return null;
+}
+
+// Component to handle map click (for fullscreen toggle)
+function MapClickHandler({ onClick }: { onClick: () => void }) {
+    useMapEvent('click', () => {
+        onClick();
+    });
+    return null;
+}
+
+// Track when user manually interacts with the map (pan/zoom)
+function MapInteractionController({ onUserInteract }: { onUserInteract: () => void }) {
+    useMapEvent({
+        dragstart() {
+            onUserInteract();
+        },
+        zoomstart() {
+            onUserInteract();
+        },
+    });
+    return null;
+}
+
+// Component to notify Leaflet when container size changes (e.g. fullscreen toggle)
+function MapResizeController({ fullscreen }: { fullscreen: boolean }) {
+    const map = useMap();
+
+    useEffect(() => {
+        // small timeout lets CSS/layout settle before recalculating size
+        const id = window.setTimeout(() => {
+            map.invalidateSize();
+        }, 150);
+
+        return () => {
+            window.clearTimeout(id);
+        };
+    }, [fullscreen, map]);
 
     return null;
 }
@@ -284,6 +344,8 @@ export const LiveBusMap: React.FC<LiveBusMapProps> = ({
 }) => {
     const [showPath, setShowPath] = useState(initialShowPath);
     const [centerTrigger, setCenterTrigger] = useState(0);
+    const [isFullscreen, setIsFullscreen] = useState(false);
+    const [hasUserInteracted, setHasUserInteracted] = useState(false);
 
     const initialCenter: [number, number] = busPosition
         ? [busPosition.latitude, busPosition.longitude]
@@ -293,16 +355,37 @@ export const LiveBusMap: React.FC<LiveBusMapProps> = ({
 
     const handleCenterBus = useCallback(() => {
         setCenterTrigger((prev) => prev + 1);
+        setHasUserInteracted(false);
     }, []);
 
     const handleTogglePath = useCallback(() => {
         setShowPath((prev) => !prev);
     }, []);
 
+    const handleEnterFullscreen = useCallback(() => {
+        setIsFullscreen(true);
+    }, []);
+
+    const handleExitFullscreen = useCallback(() => {
+        setIsFullscreen(false);
+    }, []);
+
     const isTracking = busPosition !== null && routeState === 'in_progress';
 
     return (
-        <div className="live-bus-map-container" style={{ height }}>
+        <div
+            className={`live-bus-map-container ${isFullscreen ? 'live-bus-map-container-fullscreen' : ''}`}
+            style={{ height: isFullscreen ? '100vh' : height }}
+        >
+            {isFullscreen && (
+                <button
+                    type="button"
+                    className="map-fullscreen-close-btn"
+                    onClick={handleExitFullscreen}
+                >
+                    ✕
+                </button>
+            )}
             {/* Loading state when no bus position */}
             {!busPosition && (
                 <div className="map-overlay map-overlay-loading">
@@ -335,6 +418,8 @@ export const LiveBusMap: React.FC<LiveBusMapProps> = ({
                 scrollWheelZoom={true}
                 style={{ height: '100%', width: '100%' }}
             >
+                {!isFullscreen && <MapClickHandler onClick={handleEnterFullscreen} />}
+                <MapResizeController fullscreen={isFullscreen} />
                 <TileLayer
                     attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
                     url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -344,6 +429,11 @@ export const LiveBusMap: React.FC<LiveBusMapProps> = ({
                     busPosition={busPosition}
                     autoCenter={autoCenter}
                     centerTrigger={centerTrigger}
+                    hasUserInteracted={hasUserInteracted}
+                />
+
+                <MapInteractionController
+                    onUserInteract={() => setHasUserInteracted(true)}
                 />
 
                 {showPath && busPosition && (

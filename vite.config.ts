@@ -17,4 +17,23 @@ export default defineConfig(() => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  build: {
+    // Split big libraries into their own chunks so the main bundle stays small
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ["react", "react-dom", "react-router-dom", "@tanstack/react-query"],
+          leaflet: ["leaflet", "react-leaflet"],
+          firebase: [
+            "firebase/app",
+            "firebase/messaging",
+            "firebase/firestore",
+            "firebase/database",
+          ],
+        },
+      },
+    },
+    // Slightly relax the warning limit now that we are chunking
+    chunkSizeWarningLimit: 900,
+  },
 }));
