@@ -167,6 +167,46 @@ export const getBusById = async (busId: string): Promise<Bus | null> => {
   return null;
 };
 
+/**
+ * Get bus by assigned route ID (NEW: Find which bus serves a route)
+ * @param routeId - Firestore route document ID (e.g., "m8pLb0vJ40ThcANbdpo3")
+ * @returns Bus document or null if not found
+ */
+export const getBusByRouteId = async (routeId: string): Promise<Bus | null> => {
+  const busesRef = collection(db, "buses");
+  const q = query(busesRef, where("assignedRouteId", "==", routeId));
+  const querySnapshot = await getDocs(q);
+  
+  if (!querySnapshot.empty) {
+    const doc = querySnapshot.docs[0];
+    return { id: doc.id, ...doc.data() } as Bus;
+  }
+  return null;
+};
+
+/**
+ * Subscribe to bus updates by assigned route ID
+ * @param routeId - Firestore route document ID
+ * @param callback - Callback function when bus data changes
+ * @returns Unsubscribe function
+ */
+export const subscribeToBusByRouteId = (
+  routeId: string,
+  callback: (bus: Bus | null) => void
+): (() => void) => {
+  const busesRef = collection(db, "buses");
+  const q = query(busesRef, where("assignedRouteId", "==", routeId));
+  
+  return onSnapshot(q, (querySnapshot) => {
+    if (!querySnapshot.empty) {
+      const doc = querySnapshot.docs[0];
+      callback({ id: doc.id, ...doc.data() } as Bus);
+    } else {
+      callback(null);
+    }
+  });
+};
+
 // ==================== Drivers ====================
 export const getDrivers = async (): Promise<Driver[]> => {
   const driversRef = collection(db, "drivers");
@@ -279,7 +319,23 @@ export const updateStudent = async (
       ...updates,
       updatedAt: Timestamp.now(),
     });
+  } else {
+    throw new Error(`Student with studentId "${studentId}" not found`);
   }
+};
+
+/**
+ * Update student by Firestore document ID (more direct and reliable)
+ */
+export const updateStudentByDocId = async (
+  docId: string,
+  updates: Partial<Student>
+): Promise<void> => {
+  const docRef = doc(db, "students", docId);
+  await updateDoc(docRef, {
+    ...updates,
+    updatedAt: Timestamp.now(),
+  });
 };
 
 export const subscribeToStudent = (
@@ -293,6 +349,24 @@ export const subscribeToStudent = (
     if (!querySnapshot.empty) {
       const doc = querySnapshot.docs[0];
       callback({ id: doc.id, ...doc.data() } as Student);
+    } else {
+      callback(null);
+    }
+  });
+};
+
+/**
+ * Subscribe to student updates by Firestore document ID (more direct and reliable)
+ */
+export const subscribeToStudentByDocId = (
+  docId: string,
+  callback: (student: Student | null) => void
+): (() => void) => {
+  const docRef = doc(db, "students", docId);
+  
+  return onSnapshot(docRef, (docSnapshot) => {
+    if (docSnapshot.exists()) {
+      callback({ id: docSnapshot.id, ...docSnapshot.data() } as Student);
     } else {
       callback(null);
     }

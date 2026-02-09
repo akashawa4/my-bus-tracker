@@ -29,6 +29,7 @@ export interface RealtimeStopEntry {
   order?: number;
   status?: string;
   stopId?: string;
+  reachedAt?: number; // NEW: Timestamp when stop was reached (only for reached stops)
   updatedAt?: number;
 }
 

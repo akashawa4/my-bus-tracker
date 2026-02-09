@@ -7,6 +7,12 @@ export interface Student {
   selectedStopId?: string;
   routeName?: string; // Route name from student document (for quick subscription)
   hasCompletedSetup: boolean;
+
+  // Deprecated fields (for backwards compatibility with old Firestore docs)
+  /** @deprecated Use selectedRouteId instead */
+  routeId?: string;
+  /** @deprecated Use selectedStopId instead */
+  stopId?: string;
 }
 
 export interface Route {

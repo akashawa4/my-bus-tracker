@@ -3,10 +3,10 @@ import { Timestamp } from "firebase/firestore";
 // Bus Collection Types
 export interface Bus {
   id: string;
-  assignedDriverId: string;
-  assignedRouteId: string;
+  assignedDriverId: string | null;
+  assignedRouteId: string | null;
   busNumber: string;
-  status: "running" | "stopped" | "maintenance";
+  status: "idle" | "running" | "stopped" | "maintenance";
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -18,7 +18,7 @@ export interface Driver {
   name: string;
   phone: string;
   password: string;
-  assignedBusId: string;
+  assignedBusId: string | null;
   status: "active" | "inactive";
   createdAt: Timestamp;
   updatedAt: Timestamp;

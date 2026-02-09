@@ -8,10 +8,14 @@ import {
   subscribeToLiveBus,
   getStudentByEmail,
   subscribeToStudent,
+  subscribeToStudentByDocId,
   createChangeRequest,
   updateStudent,
+  updateStudentByDocId,
+  getBusByRouteId,
+  subscribeToBusByRouteId,
 } from '@/services/firestore';
-import { subscribeToRealtimeBusByRouteId } from '@/services/realtimeDb';
+import { subscribeToRealtimeBusByBusNumber, subscribeToRealtimeBusByRouteId } from '@/services/realtimeDb';
 import {
   initFCMForStudent,
   refreshAndSaveFCMToken,
@@ -74,6 +78,7 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [realtimeRouteState, setRealtimeRouteState] = useState<string | null>(null);
   const [realtimeCurrentStop, setRealtimeCurrentStop] = useState<RealtimeCurrentStop | null>(null);
   const [realtimeStops, setRealtimeStops] = useState<Record<string, RealtimeStopEntry> | null>(null);
+  const [assignedBusNumber, setAssignedBusNumber] = useState<string | null>(null);
   const [trackingRefreshNonce, setTrackingRefreshNonce] = useState(0);
   const [busState, setBusState] = useState<BusState>({
     status: 'not-started',
@@ -85,6 +90,8 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const previousStopIndexRef = useRef<number>(-1);
   const selectedRouteRef = useRef<Route | null>(null);
   const studentRef = useRef<Student | null>(null);
+  const assignedBusNumberRef = useRef<string | null>(null);
+  const previousRouteIdRef = useRef<string | null>(null);
   const [sessionRestored, setSessionRestored] = useState(false);
 
   selectedRouteRef.current = selectedRoute;
@@ -345,28 +352,92 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
     });
 
     return () => unsubscribe();
-  }, [selectedRoute, student?.selectedRouteId, trackingRefreshNonce]);
+  }, [student?.selectedRouteId, trackingRefreshNonce]);
 
-  // Subscribe to Realtime Database bus data by student's routeId
+  // Step 1: Find which bus serves the student's route (NEW: Query Firestore first)
   useEffect(() => {
-    const routeId = student?.selectedRouteId;
-    if (!routeId) {
-      setRealtimeLocation(null);
-      setRealtimeRouteState(null);
-      setRealtimeCurrentStop(null);
+    // Use selectedRouteId (NEW field) first, fallback to routeId (DEPRECATED)
+    const routeId = student?.selectedRouteId ?? student?.routeId;
+
+    // Only rerun if routeId actually changed (not just student object recreated)
+    if (previousRouteIdRef.current === routeId) {
       return;
     }
 
-    const unsubscribe = subscribeToRealtimeBusByRouteId(
-      routeId,
+    if (!routeId) {
+      // Only cleanup if we had a routeId before
+      if (previousRouteIdRef.current !== null) {
+        previousRouteIdRef.current = null;
+        assignedBusNumberRef.current = null;
+        setAssignedBusNumber(null);
+        setRealtimeLocation(null);
+        setRealtimeRouteState(null);
+        setRealtimeCurrentStop(null);
+        setRealtimeStops(null);
+      }
+      return;
+    }
+
+    previousRouteIdRef.current = routeId;
+    console.log('[Firestore] Finding bus for routeId:', routeId);
+
+    // Subscribe to bus updates by routeId
+    const unsubscribe = subscribeToBusByRouteId(routeId, (bus) => {
+      if (!bus) {
+        console.warn('[Firestore] No bus found for routeId:', routeId);
+        if (assignedBusNumberRef.current !== null) {
+          assignedBusNumberRef.current = null;
+          setAssignedBusNumber(null);
+          setRealtimeLocation(null);
+          setRealtimeRouteState(null);
+          setRealtimeCurrentStop(null);
+          setRealtimeStops(null);
+        }
+        return;
+      }
+
+      const busNumber = bus.busNumber;
+      console.log('[Firestore] Found bus:', busNumber, 'for routeId:', routeId);
+
+      // Only update state if bus number has actually changed
+      if (assignedBusNumberRef.current !== busNumber) {
+        assignedBusNumberRef.current = busNumber;
+        setAssignedBusNumber(busNumber);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [student?.selectedRouteId, student?.routeId, trackingRefreshNonce]);
+
+  // Step 2: Subscribe to RTDB using bus number (NEW: Direct subscription by busNumber)
+  useEffect(() => {
+    if (!assignedBusNumber) {
+      // Bus not found or not assigned yet
+      return;
+    }
+
+    console.log('[RTDB] Subscribing to bus data for busNumber:', assignedBusNumber);
+
+    const unsubscribe = subscribeToRealtimeBusByBusNumber(
+      assignedBusNumber,
       (data) => {
         if (!data) {
+          console.warn('[RTDB] No data received for bus:', assignedBusNumber);
           setRealtimeLocation(null);
           setRealtimeRouteState(null);
           setRealtimeCurrentStop(null);
           setRealtimeStops(null);
           return;
         }
+
+        console.log('[RTDB] Received bus data:', {
+          busNumber: data.busNumber,
+          routeId: data.location.routeId,
+          routeName: data.location.routeName,
+          routeState: data.routeState,
+          hasStops: !!data.stops,
+          currentStop: data.currentStop?.name,
+        });
 
         setRealtimeLocation(data.location);
         setRealtimeRouteState(data.routeState ?? null);
@@ -393,18 +464,45 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
             const current = entries.find(([, s]) => s?.status === 'current');
             if (current) {
               const [stopId] = current;
+              // Try exact match first
               currentStopIndex = selectedRoute.stops.findIndex((s) => s.id === stopId);
+
+              // If no exact match, try matching by stopId field in RTDB entry
+              if (currentStopIndex < 0 && current[1].stopId) {
+                currentStopIndex = selectedRoute.stops.findIndex((s) => s.id === current[1].stopId);
+              }
+
+              // Fallback to order-based matching
               if (currentStopIndex < 0 && typeof current[1].order === 'number') {
                 currentStopIndex = Math.max(0, current[1].order - 1);
               }
+
+              // Also try matching by name if ID doesn't match
+              if (currentStopIndex < 0 && current[1].name) {
+                currentStopIndex = selectedRoute.stops.findIndex((s) => s.name === current[1].name);
+              }
             }
           }
-          if (currentStopIndex < 0 && data.currentStop?.stopId) {
-            currentStopIndex = selectedRoute.stops.findIndex((s) => s.id === data.currentStop!.stopId);
+
+          // Fallback to currentStop from RTDB
+          if (currentStopIndex < 0 && data.currentStop) {
+            // Try matching by stopId
+            if (data.currentStop.stopId) {
+              currentStopIndex = selectedRoute.stops.findIndex((s) => s.id === data.currentStop!.stopId);
+            }
+
+            // Try matching by name
+            if (currentStopIndex < 0 && data.currentStop.name) {
+              currentStopIndex = selectedRoute.stops.findIndex((s) => s.name === data.currentStop!.name);
+            }
+
+            // Fallback to order
+            if (currentStopIndex < 0 && typeof data.currentStop.order === 'number') {
+              currentStopIndex = Math.max(0, data.currentStop.order - 1);
+            }
           }
-          if (currentStopIndex < 0 && typeof data.currentStop?.order === 'number') {
-            currentStopIndex = Math.max(0, data.currentStop.order - 1);
-          }
+
+          // Ensure index is within bounds
           if (currentStopIndex >= selectedRoute.stops.length) {
             currentStopIndex = selectedRoute.stops.length - 1;
           }
@@ -427,7 +525,7 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
     );
 
     return () => unsubscribe();
-  }, [student?.selectedRouteId, selectedRoute, trackingRefreshNonce]);
+  }, [assignedBusNumber]);
 
   // Subscribe to live bus updates when route is selected or student has routeName
   useEffect(() => {
@@ -614,8 +712,8 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
       }
 
-      // Subscribe to student updates
-      const unsubscribe = subscribeToStudent(firestoreStudent.studentId ?? firestoreStudent.id, (updatedStudent) => {
+      // Subscribe to student updates by document ID (more reliable)
+      const unsubscribe = subscribeToStudentByDocId(firestoreStudent.id, (updatedStudent) => {
         if (updatedStudent) {
           const updatedAppStudent: Student = {
             id: updatedStudent.id,
@@ -685,32 +783,55 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, []);
 
   const confirmSelection = useCallback(async () => {
-    if (!student) return;
+    if (!student || !selectedRoute || !student.selectedRouteId || !student.selectedStopId) {
+      console.error('Cannot confirm: missing student, route, or stop selection');
+      toast.error('Please select both a route and a stop before confirming');
+      return;
+    }
 
     try {
-      // Update student in Firestore
+      // Update student in Firestore using document ID directly (more reliable)
       const firestoreStudent = await getStudentByEmail(student.email);
-      if (firestoreStudent) {
-        await updateStudent(firestoreStudent.studentId ?? firestoreStudent.id, {
-          // App-specific selection fields
-          selectedRouteId: student.selectedRouteId,
-          selectedStopId: student.selectedStopId,
-          hasCompletedSetup: true,
-
-          // Mirror into the main profile fields used in your sample document
-          routeId: student.selectedRouteId,
-          routeName: selectedRoute?.name,
-          stopId: student.selectedStopId,
-          stopName: selectedRoute?.stops.find((s) => s.id === student.selectedStopId)?.name,
-        });
-        // So Cloud Functions can find which students to notify (use Firestore doc id = RTDB students/{id})
-        updateStudentRouteStopInRTDB(firestoreStudent.id, student.selectedRouteId, student.selectedStopId).catch(() => { });
-        // Update will be handled by the subscription
+      if (!firestoreStudent) {
+        console.error('Student not found in Firestore');
+        toast.error('Student record not found. Please try logging in again.');
+        return;
       }
+
+      const stopName = selectedRoute.stops.find((s) => s.id === student.selectedStopId)?.name;
+
+      const updates = {
+        // App-specific selection fields
+        selectedRouteId: student.selectedRouteId,
+        selectedStopId: student.selectedStopId,
+        hasCompletedSetup: true,
+
+        // Mirror into the main profile fields used in your sample document
+        routeId: student.selectedRouteId,
+        routeName: selectedRoute.name,
+        stopId: student.selectedStopId,
+        stopName: stopName || null,
+      };
+
+      console.log('Updating student document:', firestoreStudent.id, 'with updates:', updates);
+
+      // Use document ID directly instead of querying by studentId
+      await updateStudentByDocId(firestoreStudent.id, updates);
+
+      console.log('Successfully updated student in Firestore');
+      toast.success('Route and stop saved successfully!');
+
+      // So Cloud Functions can find which students to notify (use Firestore doc id = RTDB students/{id})
+      updateStudentRouteStopInRTDB(firestoreStudent.id, student.selectedRouteId, student.selectedStopId).catch((err) => {
+        console.warn('Failed to update RTDB:', err);
+      });
+
+      // Update will be handled by the subscription
     } catch (error) {
       console.error('Error confirming selection:', error);
+      toast.error('Failed to save selection. Please try again.');
     }
-  }, [student]);
+  }, [student, selectedRoute]);
 
   const markNotificationRead = useCallback((id: string) => {
     setNotifications((prev) =>

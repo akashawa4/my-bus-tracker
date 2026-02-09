@@ -5,15 +5,23 @@ import { Route, Stop, BusState, StopStatus, BusStatus } from "@/types/student";
  * Convert Firestore Route to app Route format
  */
 export const convertFirestoreRouteToAppRoute = (firestoreRoute: FirestoreRoute): Route => {
+  // Ensure stops is an array and handle edge cases
+  const stops = Array.isArray(firestoreRoute.stops) 
+    ? firestoreRoute.stops
+        .filter((stop: RouteStop) => stop && stop.id && stop.name) // Filter out invalid stops
+        .map((stop: RouteStop) => ({
+          id: String(stop.id),
+          name: String(stop.name),
+          order: typeof stop.order === 'number' ? stop.order : 0,
+        }))
+        .sort((a, b) => a.order - b.order) // Ensure stops are sorted by order
+    : [];
+
   return {
     id: firestoreRoute.id,
-    name: firestoreRoute.name,
+    name: firestoreRoute.name || '',
     description: firestoreRoute.startingPoint || "",
-    stops: firestoreRoute.stops.map((stop: RouteStop) => ({
-      id: stop.id,
-      name: stop.name,
-      order: stop.order,
-    })),
+    stops,
   };
 };
 

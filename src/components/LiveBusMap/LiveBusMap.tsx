@@ -281,12 +281,8 @@ function PathTrail({
 
         const newPoint: [number, number] = [currentPosition.latitude, currentPosition.longitude];
 
-        if (lastPositionRef.current) {
-            const latDiff = Math.abs(currentPosition.latitude - lastPositionRef.current.lat);
-            const lngDiff = Math.abs(currentPosition.longitude - lastPositionRef.current.lng);
-            if (latDiff < 0.0001 && lngDiff < 0.0001) return;
-        }
-
+        // Always record the first point, then append every subsequent update.
+        // Keep only the latest `maxPoints` entries so the polyline stays performant.
         lastPositionRef.current = { lat: currentPosition.latitude, lng: currentPosition.longitude };
 
         setPathPoints((prev) => {
@@ -436,7 +432,7 @@ export const LiveBusMap: React.FC<LiveBusMapProps> = ({
                     onUserInteract={() => setHasUserInteracted(true)}
                 />
 
-                {showPath && busPosition && (
+                {showPath && busPosition && routeState === 'in_progress' && (
                     <PathTrail
                         currentPosition={busPosition}
                         maxPoints={maxPathPoints}
