@@ -4,6 +4,7 @@ import { NotificationBell } from '@/components/NotificationBell';
 import { BusStatusCard } from '@/components/BusStatusCard';
 import { StopCard } from '@/components/StopCard';
 import { LiveBusMap, BusPosition, StopMarker } from '@/components/LiveBusMap';
+import { Footer } from '@/components/Footer';
 import { Button } from '@/components/ui/button';
 import { StopStatus } from '@/types/student';
 import { LogOut, MapPin, Bus, User, BadgeCheck } from 'lucide-react';
@@ -137,7 +138,7 @@ export const TrackingScreen: React.FC = () => {
   }, [refreshTracking]);
 
   return (
-    <div className="min-h-screen bg-background flex flex-col overflow-hidden">
+    <div className="min-h-screen-safe bg-background flex flex-col overflow-hidden">
       {/* Header - do not shrink */}
       <header className="flex-shrink-0 bg-card border-b border-border px-4 py-4 sticky top-0 z-10 overflow-hidden">
         <div className="flex items-center justify-between">
@@ -280,14 +281,8 @@ export const TrackingScreen: React.FC = () => {
         </div>
       </main>
 
-      {/* Info Footer */}
-      <footer className="flex-shrink-0 bg-card border-t border-border p-4 text-center">
-        <p className="text-xs text-muted-foreground">
-          {effectiveStatus === 'not-started' && 'Waiting for bus to start...'}
-          {effectiveStatus === 'running' && 'Bus is on the way to your stop'}
-          {effectiveStatus === 'completed' && 'Route completed for today'}
-        </p>
-      </footer>
+      {/* Footer */}
+      <Footer />
     </div>
   );
 };

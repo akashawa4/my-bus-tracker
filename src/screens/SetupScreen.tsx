@@ -42,7 +42,7 @@ export const SetupScreen: React.FC = () => {
   const selectedStop = selectedRoute?.stops.find(s => s.id === student?.selectedStopId);
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="min-h-screen-safe bg-background flex flex-col">
       {/* Header */}
       <header className="bg-card border-b border-border px-4 py-4 sticky top-0 z-10">
         <div className="flex items-center gap-3">
@@ -73,11 +73,10 @@ export const SetupScreen: React.FC = () => {
           {['route', 'stop', 'confirm'].map((s, i) => (
             <div
               key={s}
-              className={`h-1.5 flex-1 rounded-full transition-colors ${
-                i <= ['route', 'stop', 'confirm'].indexOf(step)
+              className={`h-1.5 flex-1 rounded-full transition-colors ${i <= ['route', 'stop', 'confirm'].indexOf(step)
                   ? 'bg-primary'
                   : 'bg-border'
-              }`}
+                }`}
             />
           ))}
         </div>
@@ -120,7 +119,7 @@ export const SetupScreen: React.FC = () => {
               <div className="flex items-center justify-center w-16 h-16 rounded-2xl bg-success/10 mx-auto mb-4">
                 <Check className="w-8 h-8 text-success" />
               </div>
-              
+
               <h2 className="text-xl font-semibold text-center text-foreground mb-6">
                 Ready to go!
               </h2>

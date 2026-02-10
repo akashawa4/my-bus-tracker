@@ -135,6 +135,89 @@
 
 @layer utilities {
 
+  /* Mobile-first responsive utilities */
+  .safe-area-inset-top {
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .safe-area-inset-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .safe-area-inset-left {
+    padding-left: env(safe-area-inset-left);
+  }
+
+  .safe-area-inset-right {
+    padding-right: env(safe-area-inset-right);
+  }
+
+  /* Touch-friendly minimum sizes */
+  .touch-target {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* Responsive text scaling */
+  .text-responsive-xs {
+    font-size: clamp(0.625rem, 2vw, 0.75rem);
+  }
+
+  .text-responsive-sm {
+    font-size: clamp(0.75rem, 2.5vw, 0.875rem);
+  }
+
+  .text-responsive-base {
+    font-size: clamp(0.875rem, 3vw, 1rem);
+  }
+
+  .text-responsive-lg {
+    font-size: clamp(1rem, 3.5vw, 1.125rem);
+  }
+
+  .text-responsive-xl {
+    font-size: clamp(1.125rem, 4vw, 1.25rem);
+  }
+
+  /* Responsive spacing */
+  .space-responsive-sm {
+    gap: clamp(0.5rem, 2vw, 0.75rem);
+  }
+
+  .space-responsive-md {
+    gap: clamp(0.75rem, 3vw, 1rem);
+  }
+
+  .space-responsive-lg {
+    gap: clamp(1rem, 4vw, 1.5rem);
+  }
+
+  /* Full viewport height accounting for mobile browsers */
+  .min-h-screen-safe {
+    min-height: 100vh;
+    min-height: 100dvh;
+    /* Dynamic viewport height */
+  }
+
+  .h-screen-safe {
+    height: 100vh;
+    height: 100dvh;
+  }
+
+  /* Prevent text selection on interactive elements */
+  .no-select {
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+  }
+
+  /* Smooth scrolling */
+  .scroll-smooth {
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+  }
+
   /* Animation utilities */
   .animate-fade-in {
     animation: fadeIn 0.3s ease-out;
@@ -196,5 +279,77 @@
     50% {
       transform: translateY(-4px);
     }
+  }
+}
+
+/* Mobile-specific optimizations */
+@media (max-width: 640px) {
+
+  /* Reduce padding on small screens */
+  .container {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  /* Optimize card spacing */
+  .card-compact {
+    padding: 0.75rem;
+  }
+
+  /* Stack elements on small screens */
+  .stack-mobile {
+    flex-direction: column;
+  }
+
+  /* Smaller text on very small screens */
+  html {
+    font-size: 15px;
+  }
+}
+
+/* Extra small screens */
+@media (max-width: 375px) {
+  html {
+    font-size: 14px;
+  }
+}
+
+/* Landscape mobile optimization */
+@media (max-height: 500px) and (orientation: landscape) {
+
+  /* Reduce vertical spacing in landscape */
+  .landscape-compact {
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+  }
+
+  /* Smaller headers in landscape */
+  h1 {
+    font-size: 1.25rem;
+  }
+
+  h2 {
+    font-size: 1.125rem;
+  }
+}
+
+/* High DPI screens */
+@media (-webkit-min-device-pixel-ratio: 2),
+(min-resolution: 192dpi) {
+
+  /* Sharper borders on retina displays */
+  .border-sharp {
+    border-width: 0.5px;
+  }
+}
+
+/* Tablet and larger screens */
+@media (min-width: 768px) {
+
+  /* Center content on larger screens */
+  .max-w-mobile {
+    max-width: 640px;
+    margin-left: auto;
+    margin-right: auto;
   }
 }

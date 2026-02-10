@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useStudent } from '@/context/StudentContext';
+import { Footer } from '@/components/Footer';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -15,7 +16,7 @@ export const LoginScreen: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    
+
     if (!email.trim() || !password.trim()) {
       setError('Please enter both email and password');
       return;
@@ -31,7 +32,7 @@ export const LoginScreen: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="min-h-screen-safe bg-background flex flex-col">
       {/* Header */}
       <div className="flex-1 flex flex-col items-center justify-center px-6 py-12">
         <div className="w-full max-w-sm animate-slide-up">
@@ -111,11 +112,7 @@ export const LoginScreen: React.FC = () => {
       </div>
 
       {/* Footer */}
-      <div className="py-4 text-center">
-        <p className="text-xs text-muted-foreground">
-          © 2024 Student Bus Tracker
-        </p>
-      </div>
+      <Footer />
     </div>
   );
 };

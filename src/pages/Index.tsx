@@ -52,7 +52,7 @@ const AppContent: React.FC = () => {
 const Index = () => {
   return (
     <StudentProvider>
-      <div className="min-h-screen bg-background">
+      <div className="min-h-screen-safe bg-background">
         <AppContent />
       </div>
     </StudentProvider>
