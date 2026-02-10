@@ -28,7 +28,7 @@ export const getRoutes = async (): Promise<Route[]> => {
   const routesRef = collection(db, "routes");
   const q = query(routesRef, orderBy("name"));
   const querySnapshot = await getDocs(q);
-  
+
   return querySnapshot.docs.map((doc) => ({
     id: doc.id,
     ...doc.data(),
@@ -38,7 +38,7 @@ export const getRoutes = async (): Promise<Route[]> => {
 export const getRouteById = async (routeId: string): Promise<Route | null> => {
   const routeRef = doc(db, "routes", routeId);
   const routeSnap = await getDoc(routeRef);
-  
+
   if (routeSnap.exists()) {
     return { id: routeSnap.id, ...routeSnap.data() } as Route;
   }
@@ -50,7 +50,7 @@ export const subscribeToRoutes = (
 ): (() => void) => {
   const routesRef = collection(db, "routes");
   const q = query(routesRef, orderBy("name"));
-  
+
   return onSnapshot(q, (querySnapshot) => {
     const routes = querySnapshot.docs.map((doc) => ({
       id: doc.id,
@@ -64,7 +64,7 @@ export const subscribeToRoutes = (
 export const getLiveBuses = async (): Promise<LiveBus[]> => {
   const liveBusesRef = collection(db, "liveBuses");
   const querySnapshot = await getDocs(liveBusesRef);
-  
+
   return querySnapshot.docs.map((doc) => ({
     id: doc.id,
     ...doc.data(),
@@ -77,7 +77,7 @@ export const getLiveBusByRouteName = async (
   const liveBusesRef = collection(db, "liveBuses");
   const q = query(liveBusesRef, where("routeName", "==", routeName));
   const querySnapshot = await getDocs(q);
-  
+
   if (!querySnapshot.empty) {
     const doc = querySnapshot.docs[0];
     return { id: doc.id, ...doc.data() } as LiveBus;
@@ -91,7 +91,7 @@ export const getLiveBusByRouteId = async (
   // First get the route to find its name
   const route = await getRouteById(routeId);
   if (!route) return null;
-  
+
   // Then get live bus by route name
   return getLiveBusByRouteName(route.name);
 };
@@ -103,23 +103,16 @@ export const subscribeToLiveBus = (
 ): (() => void) => {
   const liveBusesRef = collection(db, "liveBuses");
   const q = query(liveBusesRef, where("routeName", "==", routeName));
-  
+
   return onSnapshot(
     q,
     (querySnapshot) => {
-      console.log(`Live bus query snapshot for route "${routeName}":`, {
-        empty: querySnapshot.empty,
-        size: querySnapshot.size,
-        docs: querySnapshot.docs.map(d => ({ id: d.id, data: d.data() }))
-      });
-      
       if (!querySnapshot.empty) {
         const doc = querySnapshot.docs[0];
         const liveBusData = { id: doc.id, ...doc.data() } as LiveBus;
-        console.log('Live bus data:', liveBusData);
         callback(liveBusData);
       } else {
-        console.warn(`No live bus found for route: "${routeName}"`);
+        console.log(`[Firestore] No live bus for route: "${routeName}"`);
         callback(null);
       }
     },
@@ -136,7 +129,7 @@ export const subscribeToLiveBuses = (
   callback: (liveBuses: LiveBus[]) => void
 ): (() => void) => {
   const liveBusesRef = collection(db, "liveBuses");
-  
+
   return onSnapshot(liveBusesRef, (querySnapshot) => {
     const liveBuses = querySnapshot.docs.map((doc) => ({
       id: doc.id,
@@ -150,7 +143,7 @@ export const subscribeToLiveBuses = (
 export const getBuses = async (): Promise<Bus[]> => {
   const busesRef = collection(db, "buses");
   const querySnapshot = await getDocs(busesRef);
-  
+
   return querySnapshot.docs.map((doc) => ({
     id: doc.id,
     ...doc.data(),
@@ -160,7 +153,7 @@ export const getBuses = async (): Promise<Bus[]> => {
 export const getBusById = async (busId: string): Promise<Bus | null> => {
   const busRef = doc(db, "buses", busId);
   const busSnap = await getDoc(busRef);
-  
+
   if (busSnap.exists()) {
     return { id: busSnap.id, ...busSnap.data() } as Bus;
   }
@@ -176,7 +169,7 @@ export const getBusByRouteId = async (routeId: string): Promise<Bus | null> => {
   const busesRef = collection(db, "buses");
   const q = query(busesRef, where("assignedRouteId", "==", routeId));
   const querySnapshot = await getDocs(q);
-  
+
   if (!querySnapshot.empty) {
     const doc = querySnapshot.docs[0];
     return { id: doc.id, ...doc.data() } as Bus;
@@ -196,7 +189,7 @@ export const subscribeToBusByRouteId = (
 ): (() => void) => {
   const busesRef = collection(db, "buses");
   const q = query(busesRef, where("assignedRouteId", "==", routeId));
-  
+
   return onSnapshot(q, (querySnapshot) => {
     if (!querySnapshot.empty) {
       const doc = querySnapshot.docs[0];
@@ -211,7 +204,7 @@ export const subscribeToBusByRouteId = (
 export const getDrivers = async (): Promise<Driver[]> => {
   const driversRef = collection(db, "drivers");
   const querySnapshot = await getDocs(driversRef);
-  
+
   return querySnapshot.docs.map((doc) => ({
     id: doc.id,
     ...doc.data(),
@@ -221,7 +214,7 @@ export const getDrivers = async (): Promise<Driver[]> => {
 export const getDriverById = async (driverId: string): Promise<Driver | null> => {
   const driverRef = doc(db, "drivers", driverId);
   const driverSnap = await getDoc(driverRef);
-  
+
   if (driverSnap.exists()) {
     return { id: driverSnap.id, ...driverSnap.data() } as Driver;
   }
@@ -238,7 +231,7 @@ export const createChangeRequest = async (
     createdAt: Timestamp.now(),
     updatedAt: Timestamp.now(),
   };
-  
+
   const docRef = await addDoc(changeRequestsRef, newRequest);
   return docRef.id;
 };
@@ -253,7 +246,7 @@ export const getChangeRequestsByStudentId = async (
     orderBy("requestedAt", "desc")
   );
   const querySnapshot = await getDocs(q);
-  
+
   return querySnapshot.docs.map((doc) => ({
     id: doc.id,
     ...doc.data(),
@@ -270,7 +263,7 @@ export const subscribeToChangeRequests = (
     where("studentId", "==", studentId),
     orderBy("requestedAt", "desc")
   );
-  
+
   return onSnapshot(q, (querySnapshot) => {
     const changeRequests = querySnapshot.docs.map((doc) => ({
       id: doc.id,
@@ -285,7 +278,7 @@ export const getStudentById = async (studentId: string): Promise<Student | null>
   const studentsRef = collection(db, "students");
   const q = query(studentsRef, where("studentId", "==", studentId));
   const querySnapshot = await getDocs(q);
-  
+
   if (!querySnapshot.empty) {
     const doc = querySnapshot.docs[0];
     return { id: doc.id, ...doc.data() } as Student;
@@ -297,7 +290,7 @@ export const getStudentByEmail = async (email: string): Promise<Student | null> 
   const studentsRef = collection(db, "students");
   const q = query(studentsRef, where("email", "==", email));
   const querySnapshot = await getDocs(q);
-  
+
   if (!querySnapshot.empty) {
     const doc = querySnapshot.docs[0];
     return { id: doc.id, ...doc.data() } as Student;
@@ -312,7 +305,7 @@ export const updateStudent = async (
   const studentsRef = collection(db, "students");
   const q = query(studentsRef, where("studentId", "==", studentId));
   const querySnapshot = await getDocs(q);
-  
+
   if (!querySnapshot.empty) {
     const docRef = doc(db, "students", querySnapshot.docs[0].id);
     await updateDoc(docRef, {
@@ -344,7 +337,7 @@ export const subscribeToStudent = (
 ): (() => void) => {
   const studentsRef = collection(db, "students");
   const q = query(studentsRef, where("studentId", "==", studentId));
-  
+
   return onSnapshot(q, (querySnapshot) => {
     if (!querySnapshot.empty) {
       const doc = querySnapshot.docs[0];
@@ -363,7 +356,7 @@ export const subscribeToStudentByDocId = (
   callback: (student: Student | null) => void
 ): (() => void) => {
   const docRef = doc(db, "students", docId);
-  
+
   return onSnapshot(docRef, (docSnapshot) => {
     if (docSnapshot.exists()) {
       callback({ id: docSnapshot.id, ...docSnapshot.data() } as Student);

@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { Student, Route, BusState, AppNotification, StopStatus } from '@/types/student';
 import { Student as FirestoreStudent, Route as FirestoreRoute, LiveBus } from '@/types/firestore';
 import type { RealtimeBusLocation, RealtimeCurrentStop, RealtimeStopEntry } from '@/types/realtime';
@@ -88,84 +89,29 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [previousStopIndex, setPreviousStopIndex] = useState<number>(-1);
   const previousStopIndexRef = useRef<number>(-1);
+  const busStartedNotifiedRef = useRef<boolean>(false);
   const selectedRouteRef = useRef<Route | null>(null);
   const studentRef = useRef<Student | null>(null);
   const assignedBusNumberRef = useRef<string | null>(null);
   const previousRouteIdRef = useRef<string | null>(null);
+  const lastLoggedStateRef = useRef<string | undefined>(undefined);
+  const lastLoggedStopRef = useRef<string | undefined>(undefined);
   const [sessionRestored, setSessionRestored] = useState(false);
 
   selectedRouteRef.current = selectedRoute;
   studentRef.current = student;
 
-  // *** EARLY SERVICE WORKER REGISTRATION AND NOTIFICATION PERMISSION REQUEST ***
-  // This ensures the SW is registered and notifications are prompted immediately when app loads
+  // Register service worker early (required for FCM on web)
   useEffect(() => {
-    if (typeof window === 'undefined' || !('Notification' in window) || !('serviceWorker' in navigator)) {
-      console.warn('[App] Notifications or Service Workers not supported');
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
       return;
     }
 
-    // Log current state for debugging
-    console.log('[App] === FCM Setup Check ===');
-    console.log('[App] Notification permission:', Notification.permission);
-    console.log('[App] Service Worker support:', 'serviceWorker' in navigator);
-
-    // Register service worker early (required for FCM)
     registerServiceWorker().then((registration) => {
       if (registration) {
         console.log('[App] ✅ Service Worker registered successfully');
-      } else {
-        console.error('[App] ❌ Service Worker registration failed');
       }
     });
-
-    // Only prompt if permission hasn't been decided yet
-    if (Notification.permission === 'default') {
-      // Show a toast guiding the user
-      const timer = setTimeout(() => {
-        toast.info('🔔 Enable Notifications', {
-          description: 'Get real-time bus alerts and never miss your stop!',
-          duration: 15000,
-          action: {
-            label: 'Enable Now',
-            onClick: () => {
-              console.log('[App] User clicked Enable Now button');
-              requestNotificationPermission().then((permission) => {
-                console.log('[App] Permission result:', permission);
-                if (permission === 'granted') {
-                  toast.success('Notifications enabled!', {
-                    description: 'You will now receive bus alerts.',
-                  });
-                } else if (permission === 'denied') {
-                  toast.error('Notifications blocked', {
-                    description: 'Please enable notifications in your browser settings to get bus alerts.',
-                  });
-                }
-              });
-            },
-          },
-        });
-
-        // Also trigger the native browser permission prompt after a short delay
-        setTimeout(() => {
-          if (Notification.permission === 'default') {
-            console.log('[App] Auto-triggering notification permission prompt...');
-            requestNotificationPermission().then((permission) => {
-              console.log('[App] Auto-prompt permission result:', permission);
-              if (permission === 'granted') {
-                toast.success('Notifications enabled!', {
-                  description: 'You will now receive bus updates.',
-                });
-              }
-            });
-          }
-        }, 2000);
-      }, 1000);
-
-      return () => clearTimeout(timer);
-    } else {
-      console.log('[App] Notification permission already decided:', Notification.permission);
-    }
   }, []);
 
   // Restore session from localStorage on mount (so refresh doesn't logout)
@@ -248,7 +194,8 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // Keep RTDB students/{studentId} in sync so Cloud Functions can find students to notify
     updateStudentRouteStopInRTDB(studentId, student.selectedRouteId, student.selectedStopId).catch(() => { });
 
-    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+    const hasWebNotification = typeof window !== 'undefined' && 'Notification' in window;
+    if (hasWebNotification && Notification.permission === 'default') {
       toast('Get bus updates', {
         description: 'Allow notifications to know when your bus is near.',
         action: {
@@ -274,7 +221,8 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // When tab becomes visible, refresh token and save (in case token rotated)
     const onVisibility = () => {
-      if (document.visibilityState === 'visible' && Notification.permission === 'granted') {
+      const hasWebNotif = typeof window !== 'undefined' && 'Notification' in window;
+      if (document.visibilityState === 'visible' && (!hasWebNotif || Notification.permission === 'granted')) {
         refreshAndSaveFCMToken(studentId, opts).catch(() => { });
       }
     };
@@ -283,8 +231,11 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const unsubscribe = setupForegroundMessageHandler((payload) => {
       const title = payload.notification?.title ?? (payload.data as Record<string, string> | undefined)?.title ?? 'Bus Tracker';
       const body = payload.notification?.body ?? (payload.data as Record<string, string> | undefined)?.body ?? '';
+      // Use notification type + timestamp for unique tag so notifications don't replace each other
+      const notifType = (payload.data as Record<string, string> | undefined)?.type ?? 'fcm';
+      const uniqueTag = `bus-${notifType}-${Date.now()}`;
       // Show system notification (OS tray) like on phone/laptop
-      showSystemNotification(title, { body, tag: 'bus-tracker-fcm' });
+      showSystemNotification(title, { body, tag: uniqueTag });
       // Also show in-app toast when app is focused
       toast(title, { description: body || undefined });
     });
@@ -410,6 +361,7 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [student?.selectedRouteId, student?.routeId, trackingRefreshNonce]);
 
   // Step 2: Subscribe to RTDB using bus number (NEW: Direct subscription by busNumber)
+  // IMPORTANT: Notification logic lives HERE because the driver app writes to RTDB, not Firestore.
   useEffect(() => {
     if (!assignedBusNumber) {
       // Bus not found or not assigned yet
@@ -417,6 +369,11 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     console.log('[RTDB] Subscribing to bus data for busNumber:', assignedBusNumber);
+
+    // Track whether this is the first callback from RTDB after subscribing.
+    // The first callback is the CURRENT state (not a state change), so we must
+    // NOT fire notifications for it — otherwise every app open re-triggers them.
+    let isFirstCallback = true;
 
     const unsubscribe = subscribeToRealtimeBusByBusNumber(
       assignedBusNumber,
@@ -430,14 +387,14 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
           return;
         }
 
-        console.log('[RTDB] Received bus data:', {
-          busNumber: data.busNumber,
-          routeId: data.location.routeId,
-          routeName: data.location.routeName,
-          routeState: data.routeState,
-          hasStops: !!data.stops,
-          currentStop: data.currentStop?.name,
-        });
+        // Only log on state changes to avoid console spam (RTDB updates every ~2s)
+        const newState = data.routeState;
+        const newStop = data.currentStop?.name;
+        if (newState !== lastLoggedStateRef.current || newStop !== lastLoggedStopRef.current) {
+          console.log('[RTDB] Bus update:', data.busNumber, '| state:', newState, '| stop:', newStop);
+          lastLoggedStateRef.current = newState;
+          lastLoggedStopRef.current = newStop;
+        }
 
         setRealtimeLocation(data.location);
         setRealtimeRouteState(data.routeState ?? null);
@@ -458,18 +415,19 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
         // Compute currentStopIndex from RTDB: prefer stops[id].status === 'current', else currentStop
         let currentStopIndex = -1;
-        if (selectedRoute) {
+        const currentRoute = selectedRouteRef.current;
+        if (currentRoute) {
           if (data.stops && typeof data.stops === 'object') {
             const entries = Object.entries(data.stops);
             const current = entries.find(([, s]) => s?.status === 'current');
             if (current) {
               const [stopId] = current;
               // Try exact match first
-              currentStopIndex = selectedRoute.stops.findIndex((s) => s.id === stopId);
+              currentStopIndex = currentRoute.stops.findIndex((s) => s.id === stopId);
 
               // If no exact match, try matching by stopId field in RTDB entry
               if (currentStopIndex < 0 && current[1].stopId) {
-                currentStopIndex = selectedRoute.stops.findIndex((s) => s.id === current[1].stopId);
+                currentStopIndex = currentRoute.stops.findIndex((s) => s.id === current[1].stopId);
               }
 
               // Fallback to order-based matching
@@ -479,7 +437,7 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
               // Also try matching by name if ID doesn't match
               if (currentStopIndex < 0 && current[1].name) {
-                currentStopIndex = selectedRoute.stops.findIndex((s) => s.name === current[1].name);
+                currentStopIndex = currentRoute.stops.findIndex((s) => s.name === current[1].name);
               }
             }
           }
@@ -488,12 +446,12 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
           if (currentStopIndex < 0 && data.currentStop) {
             // Try matching by stopId
             if (data.currentStop.stopId) {
-              currentStopIndex = selectedRoute.stops.findIndex((s) => s.id === data.currentStop!.stopId);
+              currentStopIndex = currentRoute.stops.findIndex((s) => s.id === data.currentStop!.stopId);
             }
 
             // Try matching by name
             if (currentStopIndex < 0 && data.currentStop.name) {
-              currentStopIndex = selectedRoute.stops.findIndex((s) => s.name === data.currentStop!.name);
+              currentStopIndex = currentRoute.stops.findIndex((s) => s.name === data.currentStop!.name);
             }
 
             // Fallback to order
@@ -503,8 +461,8 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
           }
 
           // Ensure index is within bounds
-          if (currentStopIndex >= selectedRoute.stops.length) {
-            currentStopIndex = selectedRoute.stops.length - 1;
+          if (currentStopIndex >= currentRoute.stops.length) {
+            currentStopIndex = currentRoute.stops.length - 1;
           }
         }
 
@@ -514,6 +472,101 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
           currentStopIndex,
           lastUpdated: new Date(ts),
         }));
+
+        // ── NOTIFICATION LOGIC (based on RTDB data, the single source of truth) ──
+        const currentStudent = studentRef.current;
+        if (currentStudent?.selectedStopId && currentRoute) {
+          // Check if data is fresh (within last 5 minutes)
+          const dataTimestamp = typeof ts === 'number' ? ts : Date.now();
+          const dataAgeMs = Date.now() - dataTimestamp;
+          const fiveMinutesMs = 5 * 60 * 1000;
+          const isDataFresh = dataAgeMs < fiveMinutesMs;
+
+          const isActuallyRunning = (status === 'running' || rs === 'in_progress') && isDataFresh;
+
+          // ── FIRST CALLBACK: sync state only, do NOT fire notifications ──
+          // The first RTDB callback is the current snapshot (not a state change).
+          // Without this guard, every app open/reopen re-fires "Bus Started!".
+          if (isFirstCallback) {
+            isFirstCallback = false;
+            console.log('[RTDB] Initial snapshot — syncing state, skipping notifications. status:', status, 'stopIdx:', currentStopIndex);
+            // Sync refs so subsequent callbacks know the baseline
+            if (isActuallyRunning) {
+              busStartedNotifiedRef.current = true; // bus already running, mark as notified
+            }
+            previousStopIndexRef.current = currentStopIndex;
+            setPreviousStopIndex(currentStopIndex);
+            return; // skip notification logic on initial load
+          }
+
+          // Reset "bus started" flag when bus is no longer running
+          if (!isActuallyRunning) {
+            busStartedNotifiedRef.current = false;
+          }
+
+          // On native (Android/iOS), Cloud Functions send FCM pushes server-side
+          // for background notification support. We only fire showSystemNotification
+          // on web, but always update the in-app notification list.
+          const isNativePlatform = Capacitor.isNativePlatform();
+
+          // Notify when bus starts — ONCE only (on state TRANSITION to running)
+          if (isActuallyRunning && !busStartedNotifiedRef.current) {
+            const title = '🚌 Bus Started!';
+            const body = 'Your bus has started! Track its progress in real-time.';
+            addNotification('bus-started', body);
+            if (!isNativePlatform) {
+              showSystemNotification(title, { body, tag: 'bus-started' });
+            }
+            busStartedNotifiedRef.current = true;
+            console.log('[Notification] Bus started notification sent (RTDB, native:', isNativePlatform, ')');
+          }
+
+          // Stop-based notifications
+          const studentStopIndex = currentRoute.stops.findIndex((s) => s.id === currentStudent.selectedStopId);
+          const studentStopName = studentStopIndex >= 0 ? currentRoute.stops[studentStopIndex].name : 'your stop';
+          const prevStop = previousStopIndexRef.current;
+
+          if (isActuallyRunning && currentStopIndex >= 0 && currentStopIndex !== prevStop && studentStopIndex >= 0) {
+            // Bus is ONE stop away from student's stop
+            if (currentStopIndex === studentStopIndex - 1) {
+              const title = '📍 Bus Approaching!';
+              const body = `Your stop "${studentStopName}" is coming up next! Get ready.`;
+              addNotification('stop-approaching', body);
+              if (!isNativePlatform) {
+                showSystemNotification(title, { body, tag: 'bus-approaching' });
+              }
+              console.log('[Notification] Bus approaching notification sent (RTDB)');
+            }
+
+            // Bus arrives AT student's stop
+            if (currentStopIndex === studentStopIndex) {
+              const title = '🎯 Bus Arrived!';
+              const body = `Bus has arrived at "${studentStopName}"! Time to board.`;
+              addNotification('stop-reached', body);
+              if (!isNativePlatform) {
+                showSystemNotification(title, { body, tag: 'bus-arrived' });
+              }
+              console.log('[Notification] Bus arrived notification sent (RTDB)');
+            }
+
+            // Bus has PASSED student's stop
+            if (currentStopIndex === studentStopIndex + 1 && prevStop === studentStopIndex) {
+              const title = '⚠️ Bus Passed Your Stop';
+              const body = `The bus has passed "${studentStopName}". Please contact the driver if needed.`;
+              addNotification('alert', body);
+              if (!isNativePlatform) {
+                showSystemNotification(title, { body, tag: 'bus-passed' });
+              }
+              console.log('[Notification] Bus passed notification sent (RTDB)');
+            }
+          }
+
+          // Only update previousStopIndex if data is fresh
+          if (isDataFresh) {
+            previousStopIndexRef.current = currentStopIndex;
+            setPreviousStopIndex(currentStopIndex);
+          }
+        }
       },
       (err) => {
         console.error('RTDB subscribe error:', err);
@@ -525,113 +578,39 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
     );
 
     return () => unsubscribe();
-  }, [assignedBusNumber]);
+  }, [assignedBusNumber, addNotification]);
 
   // Subscribe to live bus updates when route is selected or student has routeName
+  // NOTE: Notification logic has been moved to the RTDB callback above.
+  // This Firestore subscription only updates the liveBus state (for UI display).
   useEffect(() => {
     // Determine route name to subscribe to
     let routeNameToSubscribe: string | null = null;
 
     if (realtimeLocation?.routeName) {
-      // Prefer RTDB routeName (comes directly from driver app)
       routeNameToSubscribe = realtimeLocation.routeName;
     } else if (selectedRoute) {
       routeNameToSubscribe = selectedRoute.name;
     } else if (student?.routeName) {
-      // Use routeName from student document if route object not loaded yet
-      // This happens when student logs in but routes haven't loaded
       routeNameToSubscribe = student.routeName;
     }
 
     if (!routeNameToSubscribe) {
       setLiveBus(null);
-      setBusState({
-        status: 'not-started',
-        currentStopIndex: -1,
-        lastUpdated: new Date(),
-      });
       return;
     }
 
-    previousStopIndexRef.current = previousStopIndex;
     console.log('Subscribing to live bus for route:', routeNameToSubscribe);
 
     const unsubscribe = subscribeToLiveBus(
       routeNameToSubscribe,
       (bus) => {
-        console.log('Live bus update received:', bus);
         setLiveBus(bus);
-        const newBusState = convertLiveBusToBusState(bus);
-        setBusState(newBusState);
-
-        // Check for notifications - ONLY if bus is actually in_progress
-        // This prevents false notifications from old/stale RTDB data
-        const currentStudent = studentRef.current;
-        const currentRoute = selectedRouteRef.current;
-        if (bus && currentStudent?.selectedStopId && currentRoute) {
-          const currentStopIndex = bus.stops.findIndex((s) => s.status === 'current');
-          const studentStopIndex = currentRoute.stops.findIndex((s) => s.id === currentStudent.selectedStopId);
-          const studentStopName = studentStopIndex >= 0 ? currentRoute.stops[studentStopIndex].name : 'your stop';
-          const prevStop = previousStopIndexRef.current;
-
-          // Check if data is fresh (within last 5 minutes)
-          const busTimestamp = bus.updatedAt?.toDate?.() ?? (bus.updatedAt instanceof Date ? bus.updatedAt : new Date());
-          const now = new Date();
-          const dataAgeMs = now.getTime() - busTimestamp.getTime();
-          const fiveMinutesMs = 5 * 60 * 1000;
-          const isDataFresh = dataAgeMs < fiveMinutesMs;
-
-          // Only send notifications if:
-          // 1. Bus is actually running (not just old data)
-          // 2. Data is fresh (not stale)
-          // 3. realtimeRouteState confirms bus is in_progress
-          const isActuallyRunning = newBusState.status === 'running' && isDataFresh;
-
-          // Notify when bus starts - only if it's actually starting now (not resuming from old data)
-          if (isActuallyRunning && prevStop === -1 && currentStopIndex >= 0 && isDataFresh) {
-            const title = '🚌 Bus Started!';
-            const body = 'Your bus has started! Track its progress in real-time.';
-            addNotification('bus-started', body);
-            showSystemNotification(title, { body, tag: 'bus-started' });
-            console.log('[Notification] Bus started notification sent');
-          }
-
-          // Only check stop-based notifications if bus is actually running and data is fresh
-          if (isActuallyRunning && currentStopIndex >= 0 && currentStopIndex !== prevStop && studentStopIndex >= 0) {
-
-            // Notify when bus is ONE stop away from student's stop
-            if (currentStopIndex === studentStopIndex - 1) {
-              const title = '📍 Bus Approaching!';
-              const body = `Your stop "${studentStopName}" is coming up next! Get ready.`;
-              addNotification('stop-approaching', body);
-              showSystemNotification(title, { body, tag: 'bus-approaching' });
-              console.log('[Notification] Bus approaching notification sent - 1 stop away');
-            }
-
-            // Notify when bus arrives AT student's stop
-            if (currentStopIndex === studentStopIndex) {
-              const title = '🎯 Bus Arrived!';
-              const body = `Bus has arrived at "${studentStopName}"! Time to board.`;
-              addNotification('stop-reached', body);
-              showSystemNotification(title, { body, tag: 'bus-arrived' });
-              console.log('[Notification] Bus arrived at student stop notification sent');
-            }
-
-            // Notify if bus has PASSED student's stop (missed it)
-            if (currentStopIndex === studentStopIndex + 1 && prevStop === studentStopIndex) {
-              const title = '⚠️ Bus Passed Your Stop';
-              const body = `The bus has passed "${studentStopName}". Please contact the driver if needed.`;
-              addNotification('alert', body);
-              showSystemNotification(title, { body, tag: 'bus-passed' });
-              console.log('[Notification] Bus passed student stop notification sent');
-            }
-          }
-
-          // Only update previousStopIndex if data is fresh (use ref to avoid effect re-run loop)
-          if (isDataFresh) {
-            previousStopIndexRef.current = currentStopIndex;
-            setPreviousStopIndex(currentStopIndex);
-          }
+        // Only update busState from Firestore if RTDB is not providing data
+        // (RTDB is the primary source of truth for status)
+        if (bus && !assignedBusNumber) {
+          const newBusState = convertLiveBusToBusState(bus);
+          setBusState(newBusState);
         }
       },
       (error) => {
@@ -643,7 +622,7 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
       console.log('Unsubscribing from live bus');
       unsubscribe();
     };
-  }, [realtimeLocation?.routeName, selectedRoute?.name, student?.routeName, addNotification]);
+  }, [realtimeLocation?.routeName, selectedRoute?.name, student?.routeName, assignedBusNumber]);
 
   const login = useCallback(async (email: string, password: string): Promise<boolean> => {
     try {
