@@ -1,5 +1,4 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
-import { Capacitor } from '@capacitor/core';
 import { Student, Route, BusState, AppNotification, StopStatus } from '@/types/student';
 import { Student as FirestoreStudent, Route as FirestoreRoute, LiveBus } from '@/types/firestore';
 import type { RealtimeBusLocation, RealtimeCurrentStop, RealtimeStopEntry } from '@/types/realtime';
@@ -330,15 +329,16 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     previousRouteIdRef.current = routeId;
-    console.log('[Firestore] Finding bus for routeId:', routeId);
+    console.log('[Firestore] Finding active bus for route:', selectedRoute.name);
 
-    // Subscribe to bus updates by routeId
-    const unsubscribe = subscribeToBusByRouteId(routeId, (bus) => {
-      if (!bus) {
-        console.warn('[Firestore] No bus found for routeId:', routeId);
+    // Subscribe to live bus updates by route NAME (matching how driver reports it)
+    const unsubscribe = subscribeToLiveBus(selectedRoute.name, (liveBus) => {
+      if (!liveBus) {
+        console.warn('[Firestore] No live bus found for route:', selectedRoute.name);
         if (assignedBusNumberRef.current !== null) {
           assignedBusNumberRef.current = null;
           setAssignedBusNumber(null);
+          // Clear realtime data when bus goes offline
           setRealtimeLocation(null);
           setRealtimeRouteState(null);
           setRealtimeCurrentStop(null);
@@ -347,8 +347,8 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return;
       }
 
-      const busNumber = bus.busNumber;
-      console.log('[Firestore] Found bus:', busNumber, 'for routeId:', routeId);
+      const busNumber = liveBus.busNumber;
+      console.log('[Firestore] Live bus detected:', busNumber, 'for route:', selectedRoute.name);
 
       // Only update state if bus number has actually changed
       if (assignedBusNumberRef.current !== busNumber) {
@@ -358,7 +358,7 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
     });
 
     return () => unsubscribe();
-  }, [student?.selectedRouteId, student?.routeId, trackingRefreshNonce]);
+  }, [student?.selectedRouteId, student?.routeId, selectedRoute?.name, trackingRefreshNonce]);
 
   // Step 2: Subscribe to RTDB using bus number (NEW: Direct subscription by busNumber)
   // IMPORTANT: Notification logic lives HERE because the driver app writes to RTDB, not Firestore.
@@ -402,11 +402,13 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setRealtimeStops(data.stops ?? null);
 
         // Use RTDB as source-of-truth for status + current stop index (matches driver app)
-        const rs = (data.routeState ?? data.location.routeState ?? '').toString();
+        const rs = (data.routeState ?? data.location?.routeState ?? '').toString();
+        const hasCurrentStop = !!data.currentStop;
+
         const status =
           rs === 'completed'
             ? 'completed'
-            : rs === 'in_progress'
+            : (rs === 'in_progress' || hasCurrentStop)
               ? 'running'
               : 'not-started';
 
@@ -504,21 +506,18 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
             busStartedNotifiedRef.current = false;
           }
 
-          // On native (Android/iOS), Cloud Functions send FCM pushes server-side
-          // for background notification support. We only fire showSystemNotification
-          // on web, but always update the in-app notification list.
-          const isNativePlatform = Capacitor.isNativePlatform();
+          // Show system notifications on ALL platforms.
+          // On native, showSystemNotification uses Capacitor LocalNotifications.
+          // On web, it uses the browser Notification API.
 
           // Notify when bus starts — ONCE only (on state TRANSITION to running)
           if (isActuallyRunning && !busStartedNotifiedRef.current) {
             const title = '🚌 Bus Started!';
             const body = 'Your bus has started! Track its progress in real-time.';
             addNotification('bus-started', body);
-            if (!isNativePlatform) {
-              showSystemNotification(title, { body, tag: 'bus-started' });
-            }
+            showSystemNotification(title, { body, tag: 'bus-started' });
             busStartedNotifiedRef.current = true;
-            console.log('[Notification] Bus started notification sent (RTDB, native:', isNativePlatform, ')');
+            console.log('[Notification] Bus started notification sent (RTDB)');
           }
 
           // Stop-based notifications
@@ -532,9 +531,7 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
               const title = '📍 Bus Approaching!';
               const body = `Your stop "${studentStopName}" is coming up next! Get ready.`;
               addNotification('stop-approaching', body);
-              if (!isNativePlatform) {
-                showSystemNotification(title, { body, tag: 'bus-approaching' });
-              }
+              showSystemNotification(title, { body, tag: 'bus-approaching' });
               console.log('[Notification] Bus approaching notification sent (RTDB)');
             }
 
@@ -543,9 +540,7 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
               const title = '🎯 Bus Arrived!';
               const body = `Bus has arrived at "${studentStopName}"! Time to board.`;
               addNotification('stop-reached', body);
-              if (!isNativePlatform) {
-                showSystemNotification(title, { body, tag: 'bus-arrived' });
-              }
+              showSystemNotification(title, { body, tag: 'bus-arrived' });
               console.log('[Notification] Bus arrived notification sent (RTDB)');
             }
 
@@ -554,9 +549,7 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
               const title = '⚠️ Bus Passed Your Stop';
               const body = `The bus has passed "${studentStopName}". Please contact the driver if needed.`;
               addNotification('alert', body);
-              if (!isNativePlatform) {
-                showSystemNotification(title, { body, tag: 'bus-passed' });
-              }
+              showSystemNotification(title, { body, tag: 'bus-passed' });
               console.log('[Notification] Bus passed notification sent (RTDB)');
             }
           }

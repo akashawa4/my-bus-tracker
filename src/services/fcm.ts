@@ -135,6 +135,9 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
 
 const DEFAULT_ICON = "/placeholder.svg";
 
+// Ensure we only create the Android notification channel once
+let _nativeChannelInitialized = false;
+
 export async function showSystemNotification(
   title: string,
   options?: { body?: string; icon?: string; tag?: string; data?: Record<string, unknown> }
@@ -153,6 +156,28 @@ export async function showSystemNotification(
           console.warn("[FCM] Local notification permission denied");
           return;
         }
+      }
+
+      // Ensure Android notification channel exists with HIGH importance so
+      // notifications actually appear in the system tray with sound.
+      if (!_nativeChannelInitialized) {
+        try {
+          await LocalNotifications.createChannel({
+            id: "bus_tracking",
+            name: "Bus Tracking Alerts",
+            description: "Notifications when your bus starts, approaches, or reaches your stop.",
+            importance: 5, // IMPORTANCE_HIGH
+            visibility: 1, // VISIBILITY_PUBLIC
+            sound: "default",
+            vibration: true,
+            lights: true,
+            lightColor: "#FFAA00",
+          } as any);
+          console.log("[FCM] Native notification channel 'bus_tracking' created/updated");
+        } catch (channelErr) {
+          console.warn("[FCM] Failed to create native notification channel:", channelErr);
+        }
+        _nativeChannelInitialized = true;
       }
 
       // Generate a UNIQUE ID per notification so they don't replace each other.

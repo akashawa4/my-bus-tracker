@@ -7,6 +7,7 @@
 
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications, type Token, type ActionPerformed } from '@capacitor/push-notifications';
+import { LocalNotifications } from '@capacitor/local-notifications';
 import { getMessaging, getToken, onMessage, type MessagePayload } from "firebase/messaging";
 import { ref, set, update } from "firebase/database";
 import app, { rtdb } from "@/lib/firebase";
@@ -124,8 +125,28 @@ export function showSystemNotification(
     options?: { body?: string; icon?: string; tag?: string; data?: Record<string, unknown> }
 ): void {
     if (isNative) {
-        // On native, notifications are handled by the OS automatically
-        console.log("[Notifications] System notification on native:", title);
+        // On native, use Capacitor LocalNotifications to show a real system notification
+        console.log("[Notifications] Scheduling local notification on native:", title);
+        const notifId = Math.floor(Math.random() * 2147483647); // unique int id
+        LocalNotifications.schedule({
+            notifications: [
+                {
+                    title: title,
+                    body: options?.body ?? "",
+                    id: notifId,
+                    schedule: { at: new Date(Date.now() + 100) }, // show almost immediately
+                    sound: undefined, // use default sound
+                    smallIcon: "ic_stat_icon_config_sample", // default Capacitor icon
+                    largeIcon: "ic_launcher",
+                    channelId: "bus_tracking",
+                    extra: options?.data ?? {},
+                },
+            ],
+        }).then(() => {
+            console.log("[Notifications] Local notification scheduled successfully, id:", notifId);
+        }).catch((err) => {
+            console.error("[Notifications] Failed to schedule local notification:", err);
+        });
         return;
     }
 
